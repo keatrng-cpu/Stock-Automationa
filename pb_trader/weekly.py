@@ -24,13 +24,19 @@ def week_bars(timeframe: str) -> int:
     return max(1, (7 * 24 * 3600) // parse_tf(timeframe))
 
 
-def run(symbols, weeks=12, source="neutral", timeframe="1m", profile=None) -> None:
-    wb = week_bars(timeframe)
-    total = wb * weeks
+def run(symbols, weeks=12, source="neutral", timeframe=None, profile=None) -> None:
     base_thr = settings.confluence_threshold
     if profile:
         from .profiles import get_profile
-        base_thr = get_profile(profile).threshold
+        prof = get_profile(profile)
+        base_thr = prof.threshold
+        # Each model belongs on its own chart — default to the profile's recommended TF
+        # (Blake 1m, Patty swing 15m, Patty scalp 30s) unless the user overrides --timeframe.
+        if timeframe is None:
+            timeframe = prof.default_timeframe
+    timeframe = timeframe or "1m"
+    wb = week_bars(timeframe)
+    total = wb * weeks
     brain = TradingBrain(base_threshold=base_thr, memory=TradeMemory(shrink_k=8.0))
     series = load_series(symbols, source, total, timeframe=timeframe)
     n = min(len(v) for v in series.values())
@@ -76,9 +82,10 @@ def main() -> None:
     p.add_argument("--source", default="neutral",
                    choices=["synthetic", "neutral", "adversarial", "csv", "databento"])
     p.add_argument("--weeks", type=int, default=12)
-    p.add_argument("--timeframe", default="1m", choices=LADDER)
+    p.add_argument("--timeframe", default=None, choices=LADDER,
+                   help="base TF; defaults to the profile's recommended chart")
     p.add_argument("--profile", default=None,
-                   choices=["blake", "ronan", "patty", "default"])
+                   choices=["blake", "ronan", "patty", "patty_scalp", "default"])
     args = p.parse_args()
     run(args.symbols, args.weeks, args.source, args.timeframe, args.profile)
 

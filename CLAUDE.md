@@ -69,6 +69,32 @@ A **swing** variant (vs Blake's intraday mech model), focused on **NQ**:
 > PB Patrick/PJ still has no public playbook — that profile remains an interpretation.
 > Remaining Patty/PDI specifics (from the paid mentorship) should be confirmed, not assumed.
 
+### PB Patty — fast / scalp (sub-minute)
+
+Patty also executes **very fast on the 30-second (and smaller) chart**. No PB-specific
+sub-minute playbook is public (web mining returned only generic ICT scalping), so the
+engine's `patty_scalp` profile is the **defensible ICT-scalp interpretation, clearly
+labeled, not a verified transcript**: a liquidity sweep + LTF **MSS**, taken **strictly
+inside a macro/killzone window** (NY-AM macro 09:50–10:10, Silver Bullet 10:00–11:00),
+tight **1–2R** targets, sharp displacement. Profile: 30s base, HTF 5m/15m, `require_killzone`,
+`min_displacement` 0.3, macro/MSS/sweep emphasis. Brain `patty_scalp`-grade tag = sweep +
+MSS inside a macro/killzone. Confirm the real fast-execution rules from the mentorship.
+
+## Each model belongs on its own timeframe (the brain remembers this)
+
+Each PB style is matched to the chart it works on, and **the brain learns per-timeframe**:
+`_features` records the base TF as a concept (`tf:30s`, `tf:1m`, `tf:15m`) and pairs each
+grade with its TF (`tf:blake:1m`, `tf:patty:15m`, `tf:patty_scalp:30s`), so memory learns
+the *model→timeframe scenario*, not just the model. Each profile carries a recommended
+`default_timeframe`; `--profile` without `--timeframe` auto-selects it.
+
+| Profile        | Timeframe | Style                                  |
+|----------------|-----------|----------------------------------------|
+| `blake`        | **1m**    | intraday mech model (entry 1–5m, FVG 3–15m) |
+| `patty`        | **15m**   | swing / PDI (HTF 1h/4h/daily)          |
+| `patty_scalp`  | **30s**   | fast scalp, macro/killzone only        |
+| `default`      | 1m        | balanced full stack                    |
+
 ## PB A+ Setup Checklist (Mech Model 2.0 — the documented "secret")
 
 Source: PB Trading (Mech Model 2.0 / A+ Theory). A true A+ answers YES to these. The

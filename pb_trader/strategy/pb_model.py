@@ -98,8 +98,10 @@ class PBModel:
                  min_displacement: float = 0.0,
                  entry_mode: str = "ce",      # "ce" = consequent encroachment, "edge"
                  signal_window: int = 3,      # fire within N bars of the iFVG inverting
-                 weights: Optional[dict] = None):   # per-profile confluence emphasis
+                 weights: Optional[dict] = None,    # per-profile confluence emphasis
+                 timeframe: str = "1m"):      # base chart TF, learned per-setup by the brain
         self.symbol = symbol
+        self.timeframe = timeframe
         self.threshold = confluence_threshold
         self.swing_k = swing_k
         self.displacement_mult = displacement_mult
@@ -479,6 +481,23 @@ class PBModel:
         if checklist >= 4:
             concepts.append("pb_aplus")
 
+        # PB Patty FAST/SCALP grade: documented public sources don't spell out a PB-specific
+        # 30s playbook, so this is the defensible ICT-scalp signature Patty uses on sub-minute
+        # charts — a liquidity sweep + LTF structure shift (MSS), taken strictly inside a
+        # macro/killzone window. Tagged so the brain learns scalp-grade entries apart.
+        if "sig_sweep" in cset and "mss" in cset and bool(cset & {"macro", "killzone"}):
+            concepts.append("patty_scalp")
+
+        # Timeframe awareness: the brain should remember WHICH chart a setup grade worked on
+        # (Blake intraday ~1m, Patty swing ~15m, Patty scalp ~30s). Record the base TF as a
+        # concept (tf:1m) and pair each model grade with its TF (e.g. tf:blake:1m) so memory
+        # learns the model→timeframe scenario, not just the model.
+        tf = getattr(self, "timeframe", "1m")
+        concepts.append(f"tf:{tf}")
+        for grade in ("blake", "patty", "patty_scalp", "pb_aplus"):
+            if grade in concepts:
+                concepts.append(f"tf:{grade}:{tf}")
+
         regime = self.conditions.regime if self.conditions else "na"
         return {
             "concepts": concepts,
@@ -486,6 +505,7 @@ class PBModel:
             "session": _session_of(bar.ts),
             "macro": current_macro(bar.ts) is not None,
             "checklist": checklist,
+            "timeframe": tf,
         }
 
 

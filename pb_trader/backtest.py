@@ -75,6 +75,7 @@ def run_backtest(symbols: list[str], source_name: str = "synthetic",
     h1, h2 = htf_minutes_for(timeframe)
     mk.setdefault("htf_minutes", h1)
     mk.setdefault("htf2_minutes", h2)
+    mk.setdefault("timeframe", timeframe)
     models = {s: PBModel(s, threshold, **mk) for s in symbols}
     broker = PaperBroker(start_equity or settings.account_equity, settings.slippage_ticks,
                          manage=settings.trade_mgmt, scale_at_r=settings.scale_at_r,
@@ -225,7 +226,7 @@ def main() -> None:
                    help="force micro contracts (default: per PB_USE_MICROS / config)")
     p.add_argument("--equity-csv", default=None, help="write the equity curve to CSV")
     p.add_argument("--profile", default=None,
-                   choices=["blake", "ronan", "patty", "default"],
+                   choices=["blake", "ronan", "patty", "patty_scalp", "default"],
                    help="PB trader profile (setup/execution style)")
     args = p.parse_args()
     run_backtest(args.symbols, args.source, args.bars, args.start, args.end,

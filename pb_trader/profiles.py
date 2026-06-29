@@ -30,6 +30,7 @@ class TraderProfile:
     min_displacement: float = 0.0
     htf_minutes: int | None = None     # override the auto-selected HTF pair
     htf2_minutes: int | None = None
+    default_timeframe: str = "1m"      # the base chart this style belongs on
     emphasis: dict = field(default_factory=dict)   # component -> multiplier (>1 favors it)
     note: str = ""
 
@@ -66,6 +67,7 @@ PROFILES = {
     "blake": TraderProfile(
         "PB Blake", threshold=0.80, entry_mode="ce", tp_min_r=1.0, tp_max_r=3.0,
         min_displacement=0.3, htf_minutes=5, htf2_minutes=15,   # FVG from 3-15m, entry 1-5m
+        default_timeframe="1m",                                 # intraday mech model
         require_killzone=True,                                  # NY AM/PM macros, avoid lunch
         emphasis={"mechanical_model": 1.6, "sweep_significant": 1.6, "ifvg": 1.3,
                   "displacement": 1.4, "htf_fvg_nest": 1.4, "sponsored": 1.2},
@@ -87,12 +89,28 @@ PROFILES = {
     "patty": TraderProfile(
         "PB Patty (Swing/PDI)", threshold=0.78, entry_mode="ce",
         tp_min_r=1.5, tp_max_r=4.0, htf_minutes=60, htf2_minutes=240,
+        default_timeframe="15m",                               # swing belongs on 15m
         emphasis={"htf_bias": 1.5, "htf2_bias": 1.5, "htf_fvg_nest": 1.6, "pd": 1.5,
                   "order_block": 1.4, "mss": 1.5, "weekly_pd": 1.4, "rejection": 1.4,
                   "sweep_significant": 1.3},
         note="Swing 'PDI' model (partial-doc): HTF PD arrays (1h/4h/daily FVG+OB) rejection "
              "+ liquidity sweep + LTF MSS entry; premium/discount; avoid vs trend/SMT; NQ, "
              "larger swing targets. Refine remaining specifics from the mentorship."),
+    # PB Patty FAST / SCALP — Patty sometimes executes very fast on the 30s (and smaller)
+    # chart. Public sources DON'T document a PB-specific sub-minute playbook, so this is the
+    # defensible ICT-scalp interpretation: tight, macro/killzone-gated entries on a liquidity
+    # sweep + LTF structure shift (MSS), small targets, fast in/out. Clearly labeled, not a
+    # verified transcript — correct the specifics from the mentorship and I'll tune it.
+    "patty_scalp": TraderProfile(
+        "PB Patty (Fast/Scalp)", threshold=0.78, entry_mode="ce",
+        tp_min_r=1.0, tp_max_r=2.0, htf_minutes=5, htf2_minutes=15,
+        default_timeframe="30s",                               # sub-minute fast execution
+        require_killzone=True, min_displacement=0.3,           # macro/killzone only, sharp moves
+        emphasis={"mechanical_model": 1.5, "mss": 1.6, "sweep_significant": 1.5,
+                  "macro": 1.6, "killzone": 1.4, "displacement": 1.4, "ifvg": 1.3},
+        note="INTERPRETATION (no public 30s PB playbook found): fast sub-minute scalp — sweep "
+             "+ LTF MSS inside a macro/killzone window, tight 1-2R targets, sharp displacement. "
+             "Belongs on 30s/lower. Confirm the real fast-execution rules from the mentorship."),
     "default": TraderProfile(
         "Balanced", threshold=0.78, note="The full balanced 26-component stack."),
 }
