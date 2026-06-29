@@ -30,6 +30,7 @@ class BacktestResult:
     end_equity: float = 0.0
     commission: float = 0.0
     slippage: float = 0.0
+    checkpoints: list = field(default_factory=list)   # periodic snapshots (e.g. weekly)
 
 
 def load_series(symbols, source_name="synthetic", bars=5000, start=None, end=None,
@@ -51,7 +52,8 @@ def run_backtest(symbols: list[str], source_name: str = "synthetic",
                  equity_csv: str | None = None,
                  start_equity: float | None = None,
                  brain: TradingBrain | None = None,
-                 use_brain: bool = True) -> BacktestResult:
+                 use_brain: bool = True,
+                 checkpoint_bars: int | None = None) -> BacktestResult:
     if use_micros is None:
         use_micros = settings.use_micros
     if use_brain and brain is None:
@@ -79,8 +81,20 @@ def run_backtest(symbols: list[str], source_name: str = "synthetic",
     # fills if price RETESTS it on a LATER bar (no look-ahead), expiring after a window.
     pending: dict = {s: [] for s in symbols}
     RETEST_WINDOW = 20
+    checkpoints: list = []
 
     for i in range(n):
+        if checkpoint_bars and i > 0 and i % checkpoint_bars == 0:
+            ad = brain.adaptive if brain else None
+            checkpoints.append({
+                "bar": i, "period": i // checkpoint_bars, "equity": broker.equity,
+                "trades": len(broker.trades),
+                "risk_mult": ad.risk_multiplier() if ad else 1.0,
+                "thr_bump": ad.threshold_bump() if ad else 0.0,
+                "loss_streak": ad.loss_streak if ad else 0,
+                "win_streak": ad.win_streak if ad else 0,
+                "drawdown": ad.drawdown if ad else 0.0,
+            })
         for s in symbols:
             bar = series[s][i]
             sess = bar.ts.date()
@@ -141,7 +155,8 @@ def run_backtest(symbols: list[str], source_name: str = "synthetic",
 
     metrics = compute_metrics(broker.trades, broker.start_equity)
     result = BacktestResult(metrics, broker.trades, broker.start_equity,
-                            broker.equity, broker.total_commission, broker.total_slippage)
+                            broker.equity, broker.total_commission, broker.total_slippage,
+                            checkpoints=checkpoints)
 
     if equity_csv:
         _write_equity_csv(metrics.equity_curve, equity_csv)
