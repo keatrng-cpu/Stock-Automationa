@@ -98,6 +98,25 @@ class StructureEvent:
 
 
 @dataclass
+class OrderBlock:
+    """Smart-money order block: the last opposing candle before a displacement that
+    breaks structure. Price often returns ("mitigates") to it before continuing."""
+    direction: Direction       # BULL = demand block (support), BEAR = supply (resistance)
+    top: float
+    bottom: float
+    ts: datetime
+    index: int
+    mitigated: bool = False
+
+    @property
+    def mid(self) -> float:
+        return (self.top + self.bottom) / 2.0
+
+    def contains(self, price: float) -> bool:
+        return self.bottom <= price <= self.top
+
+
+@dataclass
 class LiquidityPool:
     price: float
     kind: str        # "BSL" | "SSL" | "EQH" | "EQL"

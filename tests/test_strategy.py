@@ -87,6 +87,37 @@ def test_position_sizing_respects_risk():
     assert micro.symbol == "MES" and micro.qty >= 1
 
 
+def test_htf_resample_aggregates():
+    from pb_trader.strategy.htf import resample
+    # 30 one-minute bars -> resample to 15m should yield 2 candles.
+    bars = [_bar(i, 100 + i, 101 + i, 99 + i, 100 + i) for i in range(30)]
+    htf = resample(bars, 15)
+    assert len(htf) == 2
+    # First HTF candle's high is the max of its 15 constituents.
+    assert htf[0].high == max(b.high for b in bars[:15])
+    assert htf[0].open == bars[0].open and htf[0].close == bars[14].close
+
+
+def test_order_block_from_bullish_fvg():
+    from pb_trader.strategy.fvg import detect_fvgs
+    from pb_trader.strategy.order_blocks import order_blocks_from_fvgs
+    from pb_trader.models import Direction
+    bars = [_bar(0, 100, 100.5, 98, 99),     # down candle -> demand OB origin
+            _bar(1, 99, 105, 99, 104),        # displacement up
+            _bar(2, 104, 106, 102, 105)]      # leaves bullish FVG
+    fvgs = detect_fvgs(bars)
+    obs = order_blocks_from_fvgs(bars, fvgs)
+    assert any(o.direction is Direction.BULL for o in obs)
+
+
+def test_ote_zone():
+    from pb_trader.strategy.fib import in_ote
+    from pb_trader.models import Side
+    # Leg 100 -> 110. Long OTE zone = 110-7.9 .. 110-6.2 = [102.1, 103.8].
+    assert in_ote(103.0, 100, 110, Side.LONG)
+    assert not in_ote(108.0, 100, 110, Side.LONG)
+
+
 def test_costs_reduce_pnl():
     from pb_trader.execution.paper import PaperBroker
     from pb_trader.models import Order, OrderType

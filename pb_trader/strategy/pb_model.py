@@ -24,20 +24,28 @@ from typing import Optional
 
 from ..models import Bar, Direction, Setup, Side
 from .conditions import MarketConditions, NewsCalendar, assess_conditions
+from .fib import ote_check
 from .fvg import active_ifvgs, detect_fvgs, update_fvg_states
+from .htf import htf_bias
 from .liquidity import build_pools, detect_sweep, next_liquidity
+from .order_blocks import order_blocks_from_fvgs, retesting_block, update_block_states
 from .structure import StructureState, find_swings, premium_discount
 from .tjr import DailyPO3, current_killzone, detect_mss
 
+# SMC-grade confluence stack (sums to 1.0). Top-down: HTF bias is weighted heavily
+# and also gates entries; entry-zone quality stacks iFVG + order block + OTE.
 WEIGHTS = {
-    "structure": 0.18,
-    "pd": 0.10,
-    "sweep": 0.18,
-    "ifvg": 0.18,
-    "displacement": 0.08,
-    "mss": 0.10,
-    "killzone": 0.08,
-    "daily_bias": 0.10,
+    "structure": 0.15,    # LTF BOS/CHOCH aligned
+    "htf_bias": 0.15,     # higher-timeframe bias aligned (top-down)
+    "pd": 0.08,           # premium/discount of the dealing range
+    "sweep": 0.15,        # liquidity raid
+    "ifvg": 0.15,         # inverted FVG retest
+    "order_block": 0.07,  # fresh order block retest
+    "ote": 0.07,          # optimal trade entry (0.62-0.79 fib)
+    "displacement": 0.06,
+    "mss": 0.06,          # TJR market structure shift
+    "killzone": 0.03,
+    "daily_bias": 0.03,   # TJR PO3 daily bias
 }
 
 
@@ -48,7 +56,9 @@ class PBModel:
                  swing_k: int = 2, displacement_mult: float = 1.5,
                  require_killzone: bool = False,
                  news: Optional[NewsCalendar] = None,
-                 max_history: int = 800):
+                 max_history: int = 800,
+                 htf_minutes: int = 15,
+                 require_htf_alignment: bool = True):
         self.symbol = symbol
         self.threshold = confluence_threshold
         self.swing_k = swing_k
@@ -56,10 +66,14 @@ class PBModel:
         self.max_history = max_history
         self.require_killzone = require_killzone
         self.news = news or NewsCalendar()
+        self.htf_minutes = htf_minutes
+        self.require_htf_alignment = require_htf_alignment
         self.bars: list[Bar] = []
         self.struct = StructureState()
         self.po3 = DailyPO3()
         self.fvgs: list = []
+        self.blocks: list = []
+        self.htf_trend: Optional[Direction] = None
         self.pools: list = []
         self.conditions: Optional[MarketConditions] = None
         self._recent_sweep = None
@@ -95,12 +109,17 @@ class PBModel:
         if self.require_killzone and current_killzone(bar.ts) is None:
             return None
 
-        # Refresh structure, FVGs, liquidity pools.
+        # ---- Top-down: higher-timeframe bias (core SMC) ----
+        self.htf_trend = htf_bias(self.bars, self.htf_minutes, self.swing_k)
+
+        # Refresh structure, FVGs, order blocks, liquidity pools.
         swings = find_swings(self.bars, self.swing_k)
         self.struct.update(swings, bar, i)
         self.fvgs = detect_fvgs(self.bars)
         for f in self.fvgs:
             update_fvg_states([f], bar)
+        self.blocks = order_blocks_from_fvgs(self.bars, self.fvgs)
+        update_block_states(self.blocks, bar)
         self.pools = build_pools(swings)
 
         sweep = detect_sweep(self.pools, bar)
@@ -117,6 +136,11 @@ class PBModel:
     def _evaluate(self, bar: Bar, i: int) -> Optional[Setup]:
         trend = self.struct.trend
         if trend is None:
+            return None
+
+        # Top-down gate: don't fight a decided higher-timeframe bias.
+        if self.require_htf_alignment and self.htf_trend is not None \
+                and self.htf_trend != trend:
             return None
 
         lo, eq, hi = premium_discount(self.bars)
@@ -150,6 +174,23 @@ class PBModel:
 
             score += WEIGHTS["ifvg"]
             reasons.append(f"iFVG retest [{f.bottom:.2f}, {f.top:.2f}]")
+
+            # HTF bias alignment (top-down confluence).
+            if self.htf_trend is not None and self.htf_trend == trend:
+                score += WEIGHTS["htf_bias"]
+                reasons.append(f"HTF({self.htf_minutes}m) bias {trend.value} aligned")
+
+            # Order block: entry coincides with a fresh, aligned demand/supply block.
+            if retesting_block(self.blocks, trend, bar):
+                score += WEIGHTS["order_block"]
+                reasons.append("fresh order block retest")
+
+            # OTE: entry sits in the 0.62-0.79 retracement of the leg.
+            side_for_ote = Side.LONG if trend is Direction.BULL else Side.SHORT
+            entry_price = f.top if trend is Direction.BULL else f.bottom
+            if ote_check(self.bars, entry_price, side_for_ote, self.swing_k):
+                score += WEIGHTS["ote"]
+                reasons.append("OTE zone (0.62-0.79 fib)")
 
             dq = self._displacement()
             score += WEIGHTS["displacement"] * dq

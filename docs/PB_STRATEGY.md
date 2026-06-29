@@ -49,21 +49,43 @@ If conditions aren't tradeable → **stand aside**, no matter how clean the patt
 ES vs NQ should move together. Divergence (one makes HH/LL, the other fails) reveals the
 weaker/stronger instrument. Trade the one SMT favors; if they disagree with the setup, skip.
 
+## 6b. Top-down multi-timeframe (core SMC)
+`strategy/htf.py`
+
+Smart-money analysis is top-down. The LTF bar stream is resampled to a higher
+timeframe (default 15m) and structure is computed there to get **HTF bias**. Entries
+that fight a decided HTF bias are **gated out** (`require_htf_alignment`), and entries
+that agree get a heavy confluence bonus.
+
+## 6c. Order blocks & OTE (core SMC entries)
+`strategy/order_blocks.py`, `strategy/fib.py`
+
+- **Order block**: the last opposing candle before a displacement that leaves an FVG —
+  demand (bull) or supply (bear). Tracked for **mitigation** (price returning to it).
+- **OTE (Optimal Trade Entry)**: the 0.62–0.79 fib retracement of the impulse leg —
+  the deep-discount/premium pocket smart money re-enters from.
+
+Both add confluence when the entry coincides with them (they often stack with the iFVG).
+
 ## 7. Confluence scoring → A+ gate
 `strategy/pb_model.py`
 
 | Component | Weight |
 |-----------|-------:|
-| HTF structure alignment | 0.18 |
-| Premium/discount alignment | 0.10 |
-| Liquidity sweep present | 0.18 |
-| iFVG inversion + retest | 0.18 |
-| Displacement quality | 0.08 |
-| TJR MSS | 0.10 |
-| TJR killzone | 0.08 |
-| TJR PO3 daily bias | 0.10 |
+| LTF structure alignment (BOS/CHOCH) | 0.15 |
+| **HTF bias alignment (top-down)** | 0.15 |
+| Premium/discount of dealing range | 0.08 |
+| Liquidity sweep present | 0.15 |
+| iFVG inversion + retest | 0.15 |
+| **Order block retest** | 0.07 |
+| **OTE (0.62–0.79 fib)** | 0.07 |
+| Displacement quality | 0.06 |
+| TJR MSS | 0.06 |
+| TJR killzone | 0.03 |
+| TJR PO3 daily bias | 0.03 |
 
-Sum ∈ [0,1]. **≥ 0.75 ⇒ A+ candidate.** The highest-scoring candidate is chosen.
+Sum ∈ [0,1]. **≥ 0.75 ⇒ A+ candidate.** The highest-scoring candidate is chosen, and
+only after the HTF-alignment + conditions + news gates pass.
 
 ## 8. Risk & execution
 `risk.py`, `execution/`

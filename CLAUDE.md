@@ -27,8 +27,9 @@ levels, bias, or setups** — if data is limited, say so and ask for the latest 
 
 ## The model (see docs/PB_STRATEGY.md for detail)
 
-HTF bias (BOS/CHOCH + premium/discount) → liquidity sweep (BSL/SSL/EQH/EQL) →
-LTF iFVG inversion + retest → displacement → SMT picks ES vs NQ. TJR overlays:
+Top-down multi-timeframe: HTF bias (resampled structure, default 15m) gates LTF entries →
+liquidity sweep (BSL/SSL/EQH/EQL) → LTF iFVG inversion + retest, stacked with order-block
+retest and OTE (0.62–0.79 fib) → displacement → SMT picks ES vs NQ. TJR overlays:
 killzones, Power-of-Three (AMD) daily bias, Market Structure Shift, breaker blocks.
 
 ## Psychology
