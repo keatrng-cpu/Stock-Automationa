@@ -62,6 +62,9 @@ class Settings:
     trade_mgmt: bool = os.environ.get("PB_TRADE_MGMT", "true").lower() != "false"
     scale_at_r: float = _f("PB_SCALE_AT_R", 1.0)
     scale_frac: float = _f("PB_SCALE_FRAC", 0.5)
+    # Catastrophic-stop guard: cap a gap-through stop fill at this × risk beyond the stop,
+    # so one bar can't blow a single trade past ~(1 + this)R. Survival-first.
+    max_stop_slippage_r: float = _f("PB_MAX_STOP_SLIPPAGE_R", 0.5)
 
     @property
     def risk_is_aggressive(self) -> bool:

@@ -23,10 +23,16 @@ def _price_key(symbol: str) -> str:
 class PaperBroker:
     def __init__(self, equity: float = 10_000.0, slippage_ticks: float = 1.0,
                  manage: bool = True, scale_at_r: float = 1.0,
-                 scale_frac: float = 0.5, be_at_r: float = 1.0):
+                 scale_frac: float = 0.5, be_at_r: float = 1.0,
+                 max_stop_slippage_r: float = 0.5):
         self._equity = equity
         self.start_equity = equity
         self.slippage_ticks = slippage_ticks
+        # Catastrophic-stop guard: a hard/guaranteed stop in a liquid instrument can't
+        # realize worse than the stop plus a bounded slippage. We cap a stop-through fill
+        # at `max_stop_slippage_r × risk` beyond the stop, so one gap can't blow a single
+        # trade to −5R+. This bounds per-trade loss to ~(1 + max_stop_slippage_r)R.
+        self.max_stop_slippage_r = max_stop_slippage_r
         # Trade management: at scale_at_r bank scale_frac of the position and move the
         # stop to breakeven; let the runner reach the final target (the draw).
         self.manage = manage
@@ -100,6 +106,15 @@ class PaperBroker:
         # 1) Stop hit (could be the original stop or the breakeven stop after scaling).
         if (long and bar.low <= pos.stop) or (not long and bar.high >= pos.stop):
             px = min(pos.stop, bar.open) if long else max(pos.stop, bar.open)
+            # Catastrophic-stop guard: bound a gap-through fill so one bar can't realize
+            # worse than ~(1 + max_stop_slippage_r)R (a hard/guaranteed stop in liquid ES/NQ).
+            # Set max_stop_slippage_r <= 0 to disable and model the full honest gap loss.
+            cap = self.max_stop_slippage_r * risk if (self.max_stop_slippage_r > 0 and risk > 0) else None
+            if cap is not None:
+                if long:
+                    px = max(px, pos.stop - cap)      # don't fill below the floor
+                else:
+                    px = min(px, pos.stop + cap)      # don't fill above the ceiling
             trades.append(self._close(pos, px, bar, "be-stop" if pos.scaled else "stop"))
             return trades, False
 

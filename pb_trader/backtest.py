@@ -91,7 +91,8 @@ def run_backtest(symbols: list[str], source_name: str = "synthetic",
         models = {s: PBModel(s, threshold, **mk) for s in symbols}
     broker = PaperBroker(start_equity or settings.account_equity, settings.slippage_ticks,
                          manage=settings.trade_mgmt, scale_at_r=settings.scale_at_r,
-                         scale_frac=settings.scale_frac)
+                         scale_frac=settings.scale_frac,
+                         max_stop_slippage_r=settings.max_stop_slippage_r)
     setups_this_session = 0
     last_session = None
     # Pending LIMIT orders: a signal at bar i places a limit at setup.entry that only

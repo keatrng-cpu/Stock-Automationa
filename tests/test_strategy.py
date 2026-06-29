@@ -758,3 +758,33 @@ def test_smt_monitor_scans_events():
         assert e.direction in ("bullish", "bearish") and e.favor in ("ES", "NQ")
     cur = current(es, nq)
     assert cur.direction in ("bullish", "bearish", "none")
+
+
+def test_catastrophic_stop_guard_caps_gap_loss():
+    """A bar that gaps far through the stop must not realize worse than ~(1+cap)R."""
+    from pb_trader.execution.paper import PaperBroker
+    from pb_trader.models import Order, OrderType, Bar, Side
+    t0 = datetime(2026, 6, 26, 10, 0)
+    # Long ES: entry 5000, stop 4990 → risk = 10 points.
+    brk = PaperBroker(equity=20000, slippage_ticks=0.0, manage=False, max_stop_slippage_r=0.5)
+    order = Order("ES", Side.LONG, 1, OrderType.LIMIT, price=5000, stop=4990, targets=[5030])
+    brk.submit_at(order, 5000, t0)
+    # Next bar GAPS down to 4900 (10R below entry) and trades lower — without the guard this
+    # would realize ~-11R; with the 0.5R cap the worst fill is stop - 0.5*risk = 4985 → -1.5R.
+    gap = Bar(t0, 4900, 4905, 4880, 4890, 100, "ES")
+    trades = brk.on_bar(gap)
+    assert trades and trades[0].r_multiple >= -1.6
+    assert trades[0].r_multiple <= -1.4    # still a real loss, just bounded
+
+
+def test_stop_guard_disabled_allows_full_gap():
+    """With the cap off (0), a true gap still models the full honest loss (no hiding risk)."""
+    from pb_trader.execution.paper import PaperBroker
+    from pb_trader.models import Order, OrderType, Bar, Side
+    t0 = datetime(2026, 6, 26, 10, 0)
+    brk = PaperBroker(equity=20000, slippage_ticks=0.0, manage=False, max_stop_slippage_r=0.0)
+    order = Order("ES", Side.LONG, 1, OrderType.LIMIT, price=5000, stop=4990, targets=[5030])
+    brk.submit_at(order, 5000, t0)
+    gap = Bar(t0, 4900, 4905, 4880, 4890, 100, "ES")
+    trades = brk.on_bar(gap)
+    assert trades and trades[0].r_multiple < -5    # honest: full gap loss when guard is off
