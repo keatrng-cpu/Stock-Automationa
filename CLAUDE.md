@@ -69,6 +69,23 @@ A **swing** variant (vs Blake's intraday mech model), focused on **NQ**:
 > PB Patrick/PJ still has no public playbook — that profile remains an interpretation.
 > Remaining Patty/PDI specifics (from the paid mentorship) should be confirmed, not assumed.
 
+## PB A+ Setup Checklist (Mech Model 2.0 — the documented "secret")
+
+Source: PB Trading (Mech Model 2.0 / A+ Theory). A true A+ answers YES to these. The
+engine encodes them as confluence components and tags a full-checklist setup `pb_aplus`
+(brain learns checklist-complete setups apart). Bias-build first: mark range equilibrium,
+unfilled gaps, daily bias + narrative; draw Asia/London session liquidity.
+
+1. Trading inside / **rejecting an HTF PD array** (1h/4h/daily FVG or order block)?
+2. Swept **prominent HTF liquidity** (PDH/PDL, AM/session highs, EQH/EQL)?
+3. **Time aligned** (killzone / macro; avoid lunch)?
+4. **EQH/EQL, daily highs/lows, or unfilled gaps** in play?
+5. **SMT aligning** with bias? (enforced at ES-vs-NQ instrument selection)
+6. Price **above/below equilibrium** of the range (premium/discount)?
+
+Session narrative (PO3/AMD): Asia accumulation→manipulation, London manipulation→reversal,
+NY reversal→continuation.
+
 ## PB secrets (Mechanical Model 2.0 core)
 
 - **Mechanical sequence (enforced in order)**: liquidity sweep → *aggressive displacement

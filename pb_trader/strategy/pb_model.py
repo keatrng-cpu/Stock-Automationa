@@ -449,7 +449,7 @@ class PBModel:
         ("opening-price bias", "opening_bias"), ("PO3 daily bias", "po3"),
         ("propulsion block", "propulsion"), ("vacuum block", "vacuum"),
         ("weekly", "weekly_pd"), ("MSS confirms", "mss"),
-        ("in discount", "pd"), ("in premium", "pd"),
+        ("in discount", "pd"), ("in premium", "pd"), ("m) bias", "htf_bias"),
     )
 
     def _features(self, reasons: list[str], bar: Bar) -> dict:
@@ -465,12 +465,27 @@ class PBModel:
         # Patty-grade swing setups apart from Blake-grade intraday ones.
         if "htf_fvg" in concepts and "mss" in concepts and "pd" in concepts:
             concepts.append("patty")
+
+        # The PB A+ Setup CHECKLIST (Mech Model 2.0): the documented 6 questions. Count how
+        # many are satisfied; a full-checklist setup is the canonical PB A+ ("pb_aplus").
+        cset = set(concepts)
+        checklist = sum([
+            bool(cset & {"htf_fvg", "htf_bias", "weekly_pd"}),   # 1) reject HTF PD array
+            "sig_sweep" in cset,                                  # 2) swept prominent HTF liquidity
+            bool(cset & {"killzone", "macro"}),                  # 3) time aligned
+            bool(cset & {"sig_sweep", "vacuum", "bpr"}),         # 4) EQH/EQL / daily H-L / gaps
+            "pd" in cset,                                         # 5) above/below equilibrium
+        ])  # (6) SMT alignment is enforced at the instrument-selection layer
+        if checklist >= 4:
+            concepts.append("pb_aplus")
+
         regime = self.conditions.regime if self.conditions else "na"
         return {
             "concepts": concepts,
             "regime": regime,
             "session": _session_of(bar.ts),
             "macro": current_macro(bar.ts) is not None,
+            "checklist": checklist,
         }
 
 
