@@ -52,26 +52,31 @@ class TraderProfile:
 
 # --- Profiles (interpretation; confirm/correct the specifics) ---
 PROFILES = {
-    # Strict Mechanical Model 2.0: the sequence + significant liquidity, mechanical-only.
+    # PB Blake Mechanical Model — DOCUMENTED (pbtrading.io / PB Blake YouTube): sweep
+    # significant liquidity (PDH/PDL, AM/session highs, EQH/EQL) → inversion (iFVG) on the
+    # highest-TF leg → target unfilled FVGs; same % risk, BE after 1:1, run to external.
+    # R:R ~1:1–1:1.5, claimed 70–80% win. This matches our mechanical model directly.
     "blake": TraderProfile(
-        "PB Blake", threshold=0.80, entry_mode="ce", tp_max_r=3.0,
+        "PB Blake", threshold=0.80, entry_mode="ce", tp_min_r=1.0, tp_max_r=1.5,
         min_displacement=0.3,
-        emphasis={"mechanical_model": 1.6, "sweep_significant": 1.5, "displacement": 1.4,
-                  "ifvg": 1.2, "sponsored": 1.3},
-        note="Mechanical Model 2.0 — strict sweep→displacement-inversion→retest, sponsored gaps."),
-    # Top-down / SMT + HTF bias + killzone discipline; patient, session-driven.
+        emphasis={"mechanical_model": 1.6, "sweep_significant": 1.6, "ifvg": 1.3,
+                  "displacement": 1.4, "htf_fvg_nest": 1.3, "sponsored": 1.2},
+        note="DOCUMENTED mech model: sweep PDH/PDL/AM/EQH/EQL → iFVG inversion (highest TF) "
+             "→ unfilled FVG target; BE after 1:1, run to ~1.5R. ~70-80% claimed."),
+    # PB Patrick / PJ (co-founder). No distinct public playbook found beyond the shared
+    # mech model — INTERPRETATION: same core, top-down/HTF + session lean. Confirm specifics.
     "ronan": TraderProfile(
-        "PB Ronan / PJ", threshold=0.80, entry_mode="ce", tp_max_r=3.0,
-        require_killzone=True,
-        emphasis={"htf_bias": 1.5, "htf2_bias": 1.4, "htf_fvg_nest": 1.4,
-                  "weekly_pd": 1.4, "killzone": 1.6, "daily_bias": 1.4},
-        note="Top-down: HTF bias + weekly PD + killzone-only execution (SMT-aware)."),
-    # Precision entries: OTE / CISD / breaker, tighter targets, scalp-leaning.
+        "PB Patrick/PJ", threshold=0.80, entry_mode="ce", tp_min_r=1.0, tp_max_r=2.0,
+        emphasis={"mechanical_model": 1.4, "htf_bias": 1.4, "htf2_bias": 1.3,
+                  "htf_fvg_nest": 1.3, "weekly_pd": 1.3, "daily_bias": 1.3},
+        note="INTERPRETATION (co-founder; shares the mech model). Top-down lean — confirm."),
+    # PB Patty — NO distinct public info found. INTERPRETATION only: precision OTE/CISD
+    # scalp lean with tighter targets. Needs your input (likely paid-mentorship content).
     "patty": TraderProfile(
-        "PB Patty", threshold=0.78, entry_mode="ce", tp_min_r=1.0, tp_max_r=2.0,
-        emphasis={"ote": 1.6, "cisd": 1.5, "breaker": 1.4, "rejection": 1.4,
-                  "bpr": 1.3, "macro": 1.3},
-        note="Precision/OTE entries with CISD + breaker confirmation; tighter 1:1–1:2 targets."),
+        "PB Patty", threshold=0.78, entry_mode="ce", tp_min_r=1.0, tp_max_r=1.5,
+        emphasis={"mechanical_model": 1.3, "ote": 1.5, "cisd": 1.4, "breaker": 1.3,
+                  "rejection": 1.3, "macro": 1.3},
+        note="INTERPRETATION ONLY — no public playbook found. Precision/OTE scalp lean. Confirm."),
     "default": TraderProfile(
         "Balanced", threshold=0.78, note="The full balanced 26-component stack."),
 }
