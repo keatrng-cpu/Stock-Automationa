@@ -45,6 +45,8 @@ python -m pb_trader.backtest --symbols ES NQ --bars 5000
 python -m pb_trader.backtest --bars 8000 --equity-csv journal/equity.csv
 # Tune parameters with train/test robustness (finds settings that hold out-of-sample):
 python -m pb_trader.optimize --bars 12000 --metric expectancy_r
+# Walk-forward analysis — optimize on each window, trade it forward untouched (anti-overfit):
+python -m pb_trader.walkforward --bars 20000 --folds 5 --metric expectancy_r
 # Run the paper-trading loop on synthetic data:
 python -m pb_trader.live --mode paper
 ```
@@ -94,6 +96,7 @@ You should see trades, an equity curve summary, win rate, expectancy, and max dr
 | `pb_trader/backtest.py` | Event-driven backtester + CLI |
 | `pb_trader/analytics.py` | Metrics (profit factor, Sharpe, DD), breakdowns, ASCII equity curve |
 | `pb_trader/optimize.py` | Parameter tuning harness with train/test robustness |
+| `pb_trader/walkforward.py` | Walk-forward analysis (rolling IS/OOS, compounding forward test) |
 | `pb_trader/live.py` | Paper/live trading loop + CLI |
 | `pb_trader/journal.py` | Trade journal (JSONL) |
 | `tests/` | Unit tests for the strategy primitives |

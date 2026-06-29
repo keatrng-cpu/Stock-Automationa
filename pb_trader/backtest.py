@@ -43,7 +43,8 @@ def run_backtest(symbols: list[str], source_name: str = "synthetic",
                  bars: int = 5000, start=None, end=None, timeframe="1m",
                  use_micros: bool | None = None, verbose: bool = True,
                  model_kwargs: dict | None = None, series: dict | None = None,
-                 equity_csv: str | None = None) -> BacktestResult:
+                 equity_csv: str | None = None,
+                 start_equity: float | None = None) -> BacktestResult:
     if use_micros is None:
         use_micros = settings.use_micros
     if series is None:
@@ -55,7 +56,7 @@ def run_backtest(symbols: list[str], source_name: str = "synthetic",
     threshold = mk.pop("confluence_threshold", settings.confluence_threshold)
     mk.setdefault("tp_max_r", settings.tp_max_r)
     models = {s: PBModel(s, threshold, **mk) for s in symbols}
-    broker = PaperBroker(settings.account_equity, settings.slippage_ticks)
+    broker = PaperBroker(start_equity or settings.account_equity, settings.slippage_ticks)
     setups_this_session = 0
     last_session = None
 

@@ -175,6 +175,17 @@ def test_liquidity_void_detection():
     assert any(v.direction is Direction.BULL for v in voids)
 
 
+def test_walk_forward_runs():
+    from pb_trader.walkforward import walk_forward
+    res = walk_forward(["ES", "NQ"], bars=6000, folds=2, is_ratio=2,
+                       min_trades=1, grid={"swing_k": [2, 3]})
+    assert len(res.folds) == 2
+    assert res.aggregate is not None
+    # Each fold recorded a chosen parameter set and an OOS metric block.
+    for f in res.folds:
+        assert "swing_k" in f.params and f.oos is not None
+
+
 def test_optimizer_runs_and_ranks():
     from pb_trader.optimize import optimize
     # Tiny grid + few bars keeps the unit test fast while exercising ranking logic.

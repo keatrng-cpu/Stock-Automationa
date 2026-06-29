@@ -100,6 +100,11 @@ only after the HTF-alignment + conditions + news gates pass.
   threshold, but ranks by the **worse of a train/test split** so it favors robust settings
   over in-sample overfits. SMC objects are detected **incrementally** (O(1)/bar), keeping
   backtests and the optimizer fast.
+- **Walk-forward** (`walkforward.py`): the strongest anti-overfit check. Slides a rolling
+  window — optimize on the in-sample (IS) window, then trade those parameters **untouched**
+  on the next out-of-sample (OOS) window, compounding equity fold to fold. The stitched OOS
+  curve is the honest "what you'd have made trading this forward" result. IS great but OOS
+  collapsing ⇒ overfit.
 
 ## 8. Risk & execution
 `risk.py`, `execution/`
