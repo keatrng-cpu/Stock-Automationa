@@ -16,6 +16,7 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 from .adaptive import AdaptiveRisk
+from .lessons import LossJournal
 from .memory import TradeMemory
 from .models import Setup, Trade
 from .news import EconomicCalendar
@@ -36,6 +37,7 @@ class TradingBrain:
     memory: TradeMemory = field(default_factory=TradeMemory)
     adaptive: AdaptiveRisk = field(default_factory=AdaptiveRisk)
     news: EconomicCalendar = field(default_factory=EconomicCalendar)
+    journal: LossJournal = field(default_factory=LossJournal)
     # How strongly memory edge nudges size: size *= (1 + edge_gain * edge), clamped.
     edge_gain: float = 0.5
     edge_veto: float = -0.5        # if memory edge is worse than this, stand aside
@@ -102,6 +104,9 @@ class TradingBrain:
     def learn(self, trade: Trade, equity: Optional[float] = None) -> None:
         self.memory.record(trade)
         self.adaptive.record(trade, equity)
+        # On a loss, introspect and journalize the mistake (memory already weighs losses
+        # more heavily so the same error is avoided faster next time).
+        self.journal.record_loss(trade, self.memory)
 
     def tick(self) -> None:
         """Per-bar heartbeat so the defensive posture can thaw when idle (anti-deadlock)."""

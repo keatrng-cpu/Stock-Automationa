@@ -34,12 +34,18 @@ class BacktestResult:
 
 
 def load_series(symbols, source_name="synthetic", bars=5000, start=None, end=None,
-                timeframe="1m") -> dict:
-    """Load bar series once; reusable across many backtests (e.g. the optimizer)."""
+                timeframe="1m", seed: int | None = None) -> dict:
+    """Load bar series once; reusable across many backtests (e.g. the optimizer).
+
+    `seed` selects a different randomized market from a generator source — pass a range of
+    seeds to test robustness across many independent markets (see montecarlo.py)."""
     from .data import GENERATORS
     from .timeframes import parse_tf
     if source_name in GENERATORS:
-        source = get_source(source_name, bars=bars, tf_seconds=parse_tf(timeframe))
+        kw = {"bars": bars, "tf_seconds": parse_tf(timeframe)}
+        if seed is not None:
+            kw["seed"] = seed
+        source = get_source(source_name, **kw)
     else:
         source = get_source(source_name)
     return {s: source.history(s, start, end, timeframe) for s in symbols}
@@ -54,7 +60,9 @@ def run_backtest(symbols: list[str], source_name: str = "synthetic",
                  brain: TradingBrain | None = None,
                  use_brain: bool = True,
                  checkpoint_bars: int | None = None,
-                 profile: str | None = None) -> BacktestResult:
+                 profile: str | None = None,
+                 seed: int | None = None,
+                 mtf: bool = False) -> BacktestResult:
     if use_micros is None:
         use_micros = settings.use_micros
     if profile:
@@ -63,7 +71,7 @@ def run_backtest(symbols: list[str], source_name: str = "synthetic",
     if use_brain and brain is None:
         brain = TradingBrain(base_threshold=settings.confluence_threshold)
     if series is None:
-        series = load_series(symbols, source_name, bars, start, end, timeframe)
+        series = load_series(symbols, source_name, bars, start, end, timeframe, seed=seed)
     symbols = list(series.keys())
     n = min(len(v) for v in series.values())
 
@@ -76,7 +84,11 @@ def run_backtest(symbols: list[str], source_name: str = "synthetic",
     mk.setdefault("htf_minutes", h1)
     mk.setdefault("htf2_minutes", h2)
     mk.setdefault("timeframe", timeframe)
-    models = {s: PBModel(s, threshold, **mk) for s in symbols}
+    if mtf:
+        from .mtf import MultiTimeframeModel
+        models = {s: MultiTimeframeModel(s, threshold, **mk) for s in symbols}
+    else:
+        models = {s: PBModel(s, threshold, **mk) for s in symbols}
     broker = PaperBroker(start_equity or settings.account_equity, settings.slippage_ticks,
                          manage=settings.trade_mgmt, scale_at_r=settings.scale_at_r,
                          scale_frac=settings.scale_frac)

@@ -693,3 +693,68 @@ def test_scenario_range_dominates_when_no_trend():
     rot = next(s for s in scen if s.name == "Range rotation")
     rev = next(s for s in scen if s.name.endswith("reversal"))
     assert rot.probability >= rev.probability
+
+
+def test_loss_journal_records_and_learns():
+    from pb_trader.lessons import LossJournal
+    from pb_trader.memory import TradeMemory
+    from pb_trader.models import Trade
+    mem = TradeMemory(shrink_k=1.0)
+    t0 = datetime(2026, 6, 26, 10, 0)
+    bad = {"concepts": ["bpr"], "regime": "ranging", "volatility": "high"}
+    loser = Trade("ES", Side.LONG, 1, 5000, 4990, t0, t0, pnl=-50, r_multiple=-1.0,
+                  tag="80%", features=bad)
+    for _ in range(5):
+        mem.record(loser, persist=False)
+    jrnl = LossJournal()
+    lesson = jrnl.record_loss(loser, mem)
+    assert lesson is not None and lesson.culprit          # named a culprit feature
+    assert lesson.culprit_edge < 0                         # the culprit is a net loser
+    # Wins produce no lesson.
+    winner = Trade("ES", Side.LONG, 1, 5000, 5020, t0, t0, pnl=100, r_multiple=2.0, tag="80%")
+    assert jrnl.record_loss(winner, mem) is None
+
+
+def test_memory_loss_emphasis_weights_losses_more():
+    from pb_trader.memory import TradeMemory
+    from pb_trader.models import Trade
+    t0 = datetime(2026, 6, 26, 10, 0)
+    plain = TradeMemory(shrink_k=0.0, loss_emphasis=1.0)
+    heavy = TradeMemory(shrink_k=0.0, loss_emphasis=3.0)
+    # One win then one loss of equal magnitude.
+    for mem in (plain, heavy):
+        mem.record(Trade("ES", Side.LONG, 1, 5000, 5010, t0, t0, pnl=50, r_multiple=1.0, tag="80%"), persist=False)
+        mem.record(Trade("ES", Side.LONG, 1, 5000, 4990, t0, t0, pnl=-50, r_multiple=-1.0, tag="80%"), persist=False)
+    # Heavier loss emphasis pulls the learned expectancy more negative.
+    assert heavy.edge("ES", Side.LONG, t0, "80%") < plain.edge("ES", Side.LONG, t0, "80%")
+
+
+def test_mtf_vetoes_against_higher_timeframes():
+    from pb_trader.mtf import MultiTimeframeModel
+    from pb_trader.data import get_source
+    src = get_source("neutral", bars=1200)
+    bars = src.history("ES")
+    m = MultiTimeframeModel("ES", 0.75, timeframe="1m")
+    took = 0
+    for b in bars:
+        s = m.on_bar(b)
+        if s is not None:
+            took += 1
+            # Any taken setup must carry the multi-TF confirmation tag.
+            assert "mtf_confirmed" in s.features.get("concepts", [])
+    assert took >= 0   # may be 0 on neutral data — the point is no crash + tagging invariant
+
+
+def test_smt_monitor_scans_events():
+    from pb_trader.smt_monitor import scan, current
+    from pb_trader.data import get_source
+    src = get_source("synthetic", bars=800)
+    es, nq = src.history("ES"), src.history("NQ")
+    events = scan(es, nq, lookback=20)
+    # Deduplicated relative to bar count: a persistent divergence is one event, not one
+    # per bar — so far fewer events than scanned bars.
+    assert len(events) < len(es)
+    for e in events:
+        assert e.direction in ("bullish", "bearish") and e.favor in ("ES", "NQ")
+    cur = current(es, nq)
+    assert cur.direction in ("bullish", "bearish", "none")

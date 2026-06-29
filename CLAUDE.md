@@ -152,6 +152,39 @@ only the one that confirms. `PBModel.project_scenarios()` pulls live state; the 
 report renders the map ("if price sweeps PDH and fails → short to PDL"). Pure/deterministic
 — every level named comes from real levels, never fabricated.
 
+## Multi-timeframe conjunction (`mtf.py`)
+
+Price is fractal — a 1m long into a 15m downtrend is a trap. `MultiTimeframeModel` wraps the
+base model and, on every candidate, resamples the seen bars to the **entire timeframe ladder
+at once** and tallies a cross-TF bias vote: if the higher timeframes net-oppose the setup it
+**vetoes**; if they agree it adds a capped confluence bonus and tags `mtf_confirmed`
+(+`mtf:agree:K`) so the brain learns multi-TF-aligned setups apart. Duck-types `PBModel`, so
+`--mtf` on backtest/weekly/montecarlo swaps it in. No look-ahead (every HTF read uses only
+seen bars).
+
+## Loss journal — learning from mistakes (`lessons.py`)
+
+Every losing trade is journalized. On a loss the brain introspects via
+`memory.worst_feature()` to name the most likely **culprit** (the worst-edge concept/regime/
+session present), writes a structured post-mortem to `journal/lessons.jsonl`, and — because
+memory now weighs losses more (`loss_emphasis`, default 1.5) — the same mistake is absorbed
+faster. Readable, not a black box; surfaced in the report and weekly ledger.
+
+## Testing across many randomized markets (`montecarlo.py`)
+
+One profitable seed is curve-fitting; the honest signal is the **distribution** across many
+independent markets. `python -m pb_trader.montecarlo --seeds 30 --source neutral --weeks 4`
+runs N seeds and reports median/mean return, % profitable, median expectancy, worst drawdown,
+and a GO/NO-GO verdict. `--carry` carries one brain across all markets (continual learning);
+`--mtf` adds the conjunction gate. Read the MEDIAN, never the best seed.
+
+## SMT monitor — automatic ES⇄NQ divergence (`smt_monitor.py`)
+
+`python -m pb_trader.smt_monitor` scans ES vs NQ bar-by-bar and emits a deduplicated timeline
+of SMT divergences (one event per divergence, not per bar), each naming the instrument to
+favor (strong→longs, weak→shorts) and the live read. Same logic the backtester uses for
+instrument selection, surfaced as a continuous monitor.
+
 ## Psychology
 
 Video-game process focus. Losses = tuition/data. Detach from P&L. Follow the rules
@@ -168,6 +201,10 @@ Run the morning protocol: context → HTF bias → SMT → key levels → A+ set
   full PB Elite protocol (context → HTF bias → SMT → key levels → A+ setup → risk → goal).
 - **Validation**: `python -m pb_trader.validate` runs backtest + optimizer + walk-forward
   and prints a GO/NO-GO verdict driven by out-of-sample results.
+- **Monte-Carlo**: `python -m pb_trader.montecarlo --seeds N` — distribution across many
+  randomized markets (median/% profitable/worst DD), not one lucky seed.
+- **SMT monitor**: `python -m pb_trader.smt_monitor` — automatic ES⇄NQ divergence timeline.
+- **Multi-timeframe**: add `--mtf` to backtest/weekly/montecarlo for full-ladder conjunction.
 - **Goal tracking**: `pb_trader/goals.py` tracks the $1k→$10k→$50k→$100k journey.
 
 ## Working on this repo

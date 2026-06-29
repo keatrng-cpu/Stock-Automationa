@@ -136,6 +136,14 @@ def build_report(symbols, source_name="synthetic", bars=3000, session="morning",
         for line in mem.summary(top=5).splitlines():
             L.append("   " + line)
 
+    # 8b. Loss journal — mistakes the brain recorded and internalized
+    from .lessons import LossJournal
+    jrnl = LossJournal(path="journal/lessons.jsonl")
+    if jrnl.lessons:
+        L.append("\n  6b) LOSS JOURNAL (mistakes learned from)")
+        for line in jrnl.summary(top=4).splitlines():
+            L.append("   " + line)
+
     # 9. Goal progress
     L.append("\n  7) GOAL PROGRESS")
     for line in goals.render(settings.account_equity, risk_pct=settings.risk_pct).splitlines():

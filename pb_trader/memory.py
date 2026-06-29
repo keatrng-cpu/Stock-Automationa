@@ -66,6 +66,7 @@ class TradeMemory:
     path: Optional[str] = None         # JSONL persistence; None = in-memory only
     shrink_k: float = 8.0              # samples needed before a feature is ~half-trusted
     recency_decay: float = 0.98        # EWMA: prior weight kept per new sample (0.98 ~ 34-trade half-life)
+    loss_emphasis: float = 1.5         # losses weigh more — the brain learns from mistakes faster
     buckets: dict = field(default_factory=dict)
     count: int = 0
 
@@ -97,21 +98,34 @@ class TradeMemory:
                 keys.append(f"cr:{c}:{regime}")         # concept-in-regime (context)
         return keys
 
-    def _bump(self, key: str, r: float) -> None:
+    def _bump(self, key: str, r: float, weight: float = 1.0) -> None:
         """Fold one trade's R into a bucket as an exponentially-weighted estimate:
-        recent trades dominate, stale edges decay toward irrelevance."""
+        recent trades dominate, stale edges decay toward irrelevance. `weight` lets a
+        sample count for more (losses are emphasized so mistakes are absorbed faster)."""
         st = self.buckets.setdefault(key, Stat())
-        st.n = st.n * self.recency_decay + 1.0
-        st.sum_r = st.sum_r * self.recency_decay + r
+        st.n = st.n * self.recency_decay + weight
+        st.sum_r = st.sum_r * self.recency_decay + weight * r
 
     # ---- learning ----
     def record(self, trade: Trade, persist: bool = True) -> None:
         self.count += 1
         feats = getattr(trade, "features", None)
+        w = self.loss_emphasis if trade.r_multiple < 0 else 1.0
         for f in self._features(trade.symbol, trade.side, trade.opened_ts, trade.tag, feats):
-            self._bump(f, trade.r_multiple)
+            self._bump(f, trade.r_multiple, w)
         if persist and self.path:
             self._append(trade)
+
+    def worst_feature(self, trade: Trade) -> tuple[str, float]:
+        """The single matching feature with the worst current expectancy — i.e. the most
+        likely CULPRIT behind a loss. Used by the loss journal to name the mistake."""
+        feats = getattr(trade, "features", None)
+        worst, worst_e = "", 0.0
+        for f in self._features(trade.symbol, trade.side, trade.opened_ts, trade.tag, feats):
+            st = self.buckets.get(f)
+            if st and st.n > 0 and st.expectancy < worst_e:
+                worst, worst_e = f, st.expectancy
+        return worst, worst_e
 
     def _shrunk(self, keys: list[str]) -> float:
         vals = []
@@ -157,10 +171,11 @@ class TradeMemory:
             side = Side(d["side"])
             self.count += 1
             r = d.get("r", 0.0)
+            w = self.loss_emphasis if r < 0 else 1.0
             # Replay chronologically through the same EWMA fold so reloaded memory keeps
             # its recency profile (later lines in the journal weigh more).
             for f in self._features(d["symbol"], side, ts, d.get("tag", ""), d.get("features")):
-                self._bump(f, r)
+                self._bump(f, r, w)
 
     def summary(self, top: int = 6) -> str:
         rows = sorted(self.buckets.items(), key=lambda kv: kv[1].n, reverse=True)[:top]

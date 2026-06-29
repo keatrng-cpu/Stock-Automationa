@@ -24,7 +24,7 @@ def week_bars(timeframe: str) -> int:
     return max(1, (7 * 24 * 3600) // parse_tf(timeframe))
 
 
-def run(symbols, weeks=12, source="neutral", timeframe=None, profile=None) -> None:
+def run(symbols, weeks=12, source="neutral", timeframe=None, profile=None, mtf=False) -> None:
     base_thr = settings.confluence_threshold
     if profile:
         from .profiles import get_profile
@@ -42,7 +42,8 @@ def run(symbols, weeks=12, source="neutral", timeframe=None, profile=None) -> No
     n = min(len(v) for v in series.values())
     weeks = n // wb
     r = run_backtest(symbols, source, total, timeframe=timeframe, verbose=False,
-                     series=series, brain=brain, checkpoint_bars=wb, profile=profile)
+                     series=series, brain=brain, checkpoint_bars=wb, profile=profile,
+                     mtf=mtf)
 
     print("\n" + "=" * 74)
     print(f"  WEEK-BY-WEEK LEDGER  '{source}' {timeframe}  ${settings.account_equity:,.0f} start, "
@@ -72,7 +73,12 @@ def run(symbols, weeks=12, source="neutral", timeframe=None, profile=None) -> No
         print("\n  What the brain learned (concept edges, n>=4):")
         for k, v in rows[:4] + rows[-4:]:
             print(f"     {k:<20} n={v.n:<4} exp={v.expectancy:+.2f}R")
-    print(f"  Final adaptive state: {brain.adaptive.state()}\n")
+    print(f"  Final adaptive state: {brain.adaptive.state()}")
+    if brain.journal.lessons:
+        print("\n  Loss journal — what the brain learned from its mistakes:")
+        for line in brain.journal.summary(top=5).splitlines()[1:]:
+            print("   " + line)
+    print()
 
 
 def main() -> None:
@@ -86,8 +92,10 @@ def main() -> None:
                    help="base TF; defaults to the profile's recommended chart")
     p.add_argument("--profile", default=None,
                    choices=["blake", "ronan", "patty", "patty_scalp", "default"])
+    p.add_argument("--mtf", action="store_true",
+                   help="multi-timeframe conjunction: gate setups by all higher TFs at once")
     args = p.parse_args()
-    run(args.symbols, args.weeks, args.source, args.timeframe, args.profile)
+    run(args.symbols, args.weeks, args.source, args.timeframe, args.profile, args.mtf)
 
 
 if __name__ == "__main__":
