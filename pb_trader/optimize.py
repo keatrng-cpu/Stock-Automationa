@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import argparse
 import itertools
+import os
 from dataclasses import dataclass
 
 from .backtest import load_series, run_backtest
@@ -58,33 +59,55 @@ def _objective(metrics_dict: dict, metric: str, min_trades: int) -> float:
     return val
 
 
+# Worker-side globals (populated per process via the Pool initializer) so the large
+# train/test bar series are pickled once per worker, not once per task.
+_W: dict = {}
+
+
+def _init_worker(train, test, symbols, source, bars, metric, min_trades):
+    _W.update(train=train, test=test, symbols=symbols, source=source, bars=bars,
+              metric=metric, min_trades=min_trades)
+
+
+def _eval_combo(params: dict) -> ComboResult:
+    tr = run_backtest(_W["symbols"], _W["source"], _W["bars"], verbose=False,
+                      model_kwargs=dict(params), series=_W["train"]).metrics.as_dict()
+    te = run_backtest(_W["symbols"], _W["source"], _W["bars"], verbose=False,
+                      model_kwargs=dict(params), series=_W["test"]).metrics.as_dict()
+    s_tr = _objective(tr, _W["metric"], _W["min_trades"])
+    s_te = _objective(te, _W["metric"], _W["min_trades"])
+    return ComboResult(params, tr, te, min(s_tr, s_te),
+                       tr.get("trades", 0), te.get("trades", 0))
+
+
 def optimize(symbols, bars=12000, source="synthetic", metric="expectancy_r",
              min_trades=8, top=10, start=None, end=None, timeframe="1m",
-             grid: dict | None = None) -> list[ComboResult]:
+             grid: dict | None = None, jobs: int | None = None) -> list[ComboResult]:
     grid = grid or GRID
     series = load_series(symbols, source, bars, start, end, timeframe)
     train = _slice(series, 0.0, 0.5)
     test = _slice(series, 0.5, 1.0)
 
     keys = list(grid.keys())
-    combos = list(itertools.product(*(grid[k] for k in keys)))
-    print(f"Optimizing {len(combos)} parameter combinations "
+    combos = [dict(zip(keys, c)) for c in itertools.product(*(grid[k] for k in keys))]
+    combos = [p for p in combos if p.get("ote_low", 0) < p.get("ote_high", 1)]
+
+    jobs = jobs or min(os.cpu_count() or 1, len(combos))
+    print(f"Optimizing {len(combos)} parameter combinations across {jobs} core(s) "
           f"(train/test split, metric={metric}, min_trades={min_trades})...\n")
 
+    args = (train, test, symbols, source, bars, metric, min_trades)
     results: list[ComboResult] = []
-    for combo in combos:
-        params = dict(zip(keys, combo))
-        if params.get("ote_low", 0) >= params.get("ote_high", 1):
-            continue
-        tr = run_backtest(symbols, source, bars, verbose=False,
-                          model_kwargs=dict(params), series=train).metrics.as_dict()
-        te = run_backtest(symbols, source, bars, verbose=False,
-                          model_kwargs=dict(params), series=test).metrics.as_dict()
-        s_tr = _objective(tr, metric, min_trades)
-        s_te = _objective(te, metric, min_trades)
-        robust = min(s_tr, s_te)   # only as good as the weaker half
-        results.append(ComboResult(params, tr, te, robust,
-                                   tr.get("trades", 0), te.get("trades", 0)))
+    if jobs > 1:
+        try:
+            import multiprocessing as mp
+            with mp.Pool(jobs, initializer=_init_worker, initargs=args) as pool:
+                results = pool.map(_eval_combo, combos)
+        except Exception:  # noqa: BLE001 — fall back to serial if no fork/spawn
+            results = []
+    if not results:
+        _init_worker(*args)
+        results = [_eval_combo(p) for p in combos]
 
     results.sort(key=lambda r: r.robust_score, reverse=True)
     return results[:top]
@@ -106,12 +129,13 @@ def main() -> None:
                    choices=["expectancy_r", "profit_factor", "sharpe", "net_pnl"])
     p.add_argument("--min-trades", type=int, default=8)
     p.add_argument("--top", type=int, default=10)
+    p.add_argument("--jobs", type=int, default=None, help="parallel workers (default: all cores)")
     p.add_argument("--start", default=None)
     p.add_argument("--end", default=None)
     args = p.parse_args()
 
     best = optimize(args.symbols, args.bars, args.source, args.metric,
-                    args.min_trades, args.top, args.start, args.end)
+                    args.min_trades, args.top, args.start, args.end, jobs=args.jobs)
 
     print("=" * 78)
     print(f"  TOP {len(best)} ROBUST PARAMETER SETS (ranked by worse of train/test)")

@@ -26,7 +26,7 @@ from ..models import Bar, Direction, Setup, Side
 from .conditions import MarketConditions, NewsCalendar, assess_conditions
 from .fib import ote_check
 from .fvg import active_ifvgs, new_fvg, update_fvg_states
-from .htf import htf_bias
+from .htf import _bucket, htf_bias
 from .liquidity import build_pools, detect_sweep, next_liquidity
 from .order_blocks import (flip_broken_blocks, order_block_at_formation,
                            retesting_block, retesting_breaker, update_block_states)
@@ -89,6 +89,8 @@ class PBModel:
         self.voids: list = []
         self.htf_trend: Optional[Direction] = None
         self.htf2_trend: Optional[Direction] = None
+        self._htf_bucket = None
+        self._htf2_bucket = None
         self.pools: list = []
         self.conditions: Optional[MarketConditions] = None
         self._recent_sweep = None
@@ -125,8 +127,16 @@ class PBModel:
             return None
 
         # ---- Top-down: higher-timeframe bias (core SMC), two timeframes ----
-        self.htf_trend = htf_bias(self.bars, self.htf_minutes, self.swing_k)
-        self.htf2_trend = htf_bias(self.bars, self.htf2_minutes, self.swing_k)
+        # HTF bias only changes when an HTF candle closes, so recompute once per HTF
+        # bucket instead of every bar (the resample is the most expensive step).
+        b1 = _bucket(bar.ts, self.htf_minutes)
+        if b1 != self._htf_bucket:
+            self._htf_bucket = b1
+            self.htf_trend = htf_bias(self.bars, self.htf_minutes, self.swing_k)
+        b2 = _bucket(bar.ts, self.htf2_minutes)
+        if b2 != self._htf2_bucket:
+            self._htf2_bucket = b2
+            self.htf2_trend = htf_bias(self.bars, self.htf2_minutes, self.swing_k)
 
         # ---- Incremental SMC objects: detect what FORMS on this bar, then update
         # persisted state once. O(1) amortized per bar (was O(n) recompute = O(n^2)). ----
