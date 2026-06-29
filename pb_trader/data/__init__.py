@@ -2,7 +2,10 @@
 from .base import DataSource
 from .synthetic import SyntheticSource
 
-__all__ = ["DataSource", "SyntheticSource", "get_source"]
+__all__ = ["DataSource", "SyntheticSource", "get_source", "GENERATORS"]
+
+# Sources that synthesize bars and accept a `bars=` count (vs. external feeds).
+GENERATORS = {"synthetic", "neutral", "adversarial"}
 
 
 def get_source(name: str, **kwargs) -> DataSource:

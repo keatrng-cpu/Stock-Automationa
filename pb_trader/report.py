@@ -31,7 +31,8 @@ def _warm(model: PBModel, bars: list) -> None:
 
 def build_report(symbols, source_name="synthetic", bars=3000, session="morning",
                  start=None, end=None, timeframe="1m") -> str:
-    source = get_source(source_name, bars=bars) if source_name == "synthetic" \
+    from .data import GENERATORS
+    source = get_source(source_name, bars=bars) if source_name in GENERATORS \
         else get_source(source_name)
     series = {s: source.history(s, start, end, timeframe) for s in symbols}
 

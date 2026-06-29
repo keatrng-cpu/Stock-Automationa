@@ -35,7 +35,8 @@ class BacktestResult:
 def load_series(symbols, source_name="synthetic", bars=5000, start=None, end=None,
                 timeframe="1m") -> dict:
     """Load bar series once; reusable across many backtests (e.g. the optimizer)."""
-    source = get_source(source_name, bars=bars) if source_name == "synthetic" \
+    from .data import GENERATORS
+    source = get_source(source_name, bars=bars) if source_name in GENERATORS \
         else get_source(source_name)
     return {s: source.history(s, start, end, timeframe) for s in symbols}
 
