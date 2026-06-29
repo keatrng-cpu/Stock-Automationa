@@ -454,6 +454,11 @@ class PBModel:
     def _features(self, reasons: list[str], bar: Bar) -> dict:
         text = " | ".join(reasons)
         concepts = [tag for kw, tag in self._CONCEPT_MAP if kw in text]
+        # PB Blake canonical grade: the documented mech model = sweep of SIGNIFICANT
+        # liquidity → inversion (iFVG) → UNFILLED higher-TF FVG, in sequence. When all
+        # are present the brain tags it "blake" so memory learns Blake-grade setups apart.
+        if "mechanical" in concepts and "sig_sweep" in concepts and "htf_fvg" in concepts:
+            concepts.append("blake")
         regime = self.conditions.regime if self.conditions else "na"
         return {
             "concepts": concepts,

@@ -41,6 +41,25 @@ retest and OTE (0.62–0.79 fib) → displacement → SMT picks ES vs NQ. TJR ov
 killzones, Power-of-Three (AMD) daily bias, Market Structure Shift, breaker blocks.
 Targets aim at the Draw on Liquidity (external range liquidity).
 
+## PB Blake — the documented Mechanical Model (canonical)
+
+Source: pbtrading.io / PB Blake YouTube. The engine's `blake` profile and the brain's
+`blake`-grade tag implement this exactly:
+
+1. **Structure**: swing low → swing high → lower low (a clear leg with a failure).
+2. **Sweep**: take **significant** liquidity — PDH/PDL, AM/session highs, EQH/EQL.
+3. **Inversion**: entry on an **iFVG inversion** within the **highest-TF leg**.
+4. **Unfilled FVG**: the FVG must be from the **highest possible timeframe (3–15m)** and
+   **unmitigated** (not traded into).
+5. **Timeframes**: entry execution on **1m/5m**; FVG/inversion 3–15m.
+6. **Sessions**: trade the **9:30–11:00** and **13:00–15:00** NY macros; **avoid lunch**.
+7. **Stop**: below the inversion low (longs) / above the high (shorts), or at the OB.
+8. **Risk/targets**: same % per trade; **break-even after 1:1**; internal target = unfilled
+   LTF FVG; **runner to external significant liquidity**. Claimed ~70–80% win, R:R ~1:1–1.5.
+
+> PB Patrick/PJ and PB Patty have no public playbook — their profiles are interpretations
+> pending real specifics. Do not present them as verified.
+
 ## PB secrets (Mechanical Model 2.0 core)
 
 - **Mechanical sequence (enforced in order)**: liquidity sweep → *aggressive displacement

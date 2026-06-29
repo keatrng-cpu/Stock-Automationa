@@ -28,6 +28,8 @@ class TraderProfile:
     tp_max_r: float = 3.0
     require_killzone: bool = False
     min_displacement: float = 0.0
+    htf_minutes: int | None = None     # override the auto-selected HTF pair
+    htf2_minutes: int | None = None
     emphasis: dict = field(default_factory=dict)   # component -> multiplier (>1 favors it)
     note: str = ""
 
@@ -39,7 +41,7 @@ class TraderProfile:
         return w
 
     def model_kwargs(self) -> dict:
-        return {
+        mk = {
             "confluence_threshold": self.threshold,
             "entry_mode": self.entry_mode,
             "tp_min_r": self.tp_min_r,
@@ -48,6 +50,11 @@ class TraderProfile:
             "min_displacement": self.min_displacement,
             "weights": self.weights(),
         }
+        if self.htf_minutes:
+            mk["htf_minutes"] = self.htf_minutes
+        if self.htf2_minutes:
+            mk["htf2_minutes"] = self.htf2_minutes
+        return mk
 
 
 # --- Profiles (interpretation; confirm/correct the specifics) ---
@@ -57,12 +64,15 @@ PROFILES = {
     # highest-TF leg → target unfilled FVGs; same % risk, BE after 1:1, run to external.
     # R:R ~1:1–1:1.5, claimed 70–80% win. This matches our mechanical model directly.
     "blake": TraderProfile(
-        "PB Blake", threshold=0.80, entry_mode="ce", tp_min_r=1.0, tp_max_r=1.5,
-        min_displacement=0.3,
+        "PB Blake", threshold=0.80, entry_mode="ce", tp_min_r=1.0, tp_max_r=3.0,
+        min_displacement=0.3, htf_minutes=5, htf2_minutes=15,   # FVG from 3-15m, entry 1-5m
+        require_killzone=True,                                  # NY AM/PM macros, avoid lunch
         emphasis={"mechanical_model": 1.6, "sweep_significant": 1.6, "ifvg": 1.3,
-                  "displacement": 1.4, "htf_fvg_nest": 1.3, "sponsored": 1.2},
-        note="DOCUMENTED mech model: sweep PDH/PDL/AM/EQH/EQL → iFVG inversion (highest TF) "
-             "→ unfilled FVG target; BE after 1:1, run to ~1.5R. ~70-80% claimed."),
+                  "displacement": 1.4, "htf_fvg_nest": 1.4, "sponsored": 1.2},
+        note="DOCUMENTED mech model (pbtrading.io / PB Blake YT): swing-low/high/lower-low + "
+             "sweep PDH/PDL/AM/EQH/EQL → inversion (iFVG) on highest TF (3-15m) with UNFILLED "
+             "FVG; entry 1-5m; sessions 9:30-11:00 & 13:00-15:00 (avoid lunch); stop past the "
+             "inversion/OB; BE after 1:1, runner to external liquidity. ~70-80% claimed."),
     # PB Patrick / PJ (co-founder). No distinct public playbook found beyond the shared
     # mech model — INTERPRETATION: same core, top-down/HTF + session lean. Confirm specifics.
     "ronan": TraderProfile(
