@@ -96,7 +96,8 @@ class PBModel:
                  min_stop_ticks: int = 8,
                  require_sweep: bool = True,
                  min_displacement: float = 0.0,
-                 entry_mode: str = "ce"):     # "ce" = consequent encroachment, "edge"
+                 entry_mode: str = "ce",      # "ce" = consequent encroachment, "edge"
+                 signal_window: int = 3):     # fire within N bars of the iFVG inverting
         self.symbol = symbol
         self.threshold = confluence_threshold
         self.swing_k = swing_k
@@ -116,6 +117,8 @@ class PBModel:
         self.require_sweep = require_sweep
         self.min_displacement = min_displacement
         self.entry_mode = entry_mode
+        self.signal_window = signal_window
+        self._signaled: set = set()    # iFVGs already signalled (avoid duplicate limits)
         self.tick = CONTRACTS.get(symbol, {}).get("tick", 0.25)
         self.sessions = SessionTracker()
         self._sweep_significant: Optional[str] = None
@@ -213,6 +216,9 @@ class PBModel:
         self.vacuums = self.vacuums[-20:]
         for v in self.vacuums:
             update_void_states([v], bar)
+        # Forget signalled iFVGs older than the recent window (bounded memory).
+        if len(self._signaled) > 200:
+            self._signaled = {k for k in self._signaled if k[2] >= i - 300}
 
         # Structure + liquidity pools from swings over a recent window (LTF structure
         # only needs recent swings; the long-term picture comes from the HTF bias).
@@ -267,13 +273,16 @@ class PBModel:
         if not ifvgs:
             return None
 
-        # Score every aligned iFVG being retested; keep only the BEST candidate so we
-        # always hand the user the single highest-probability A+ setup, never the first.
+        # Fire when an aligned iFVG has FRESHLY inverted (we then place a limit at its CE
+        # and wait for the retest) — NOT mid-retest. This is the realistic ICT flow and
+        # removes the look-ahead of assuming a fill at a price the signal bar already hit.
         best: Optional[Setup] = None
         for f in ifvgs:
-            aligned = f.direction == trend
-            retesting = f.contains(bar.close) or f.contains(bar.low) or f.contains(bar.high)
-            if not (aligned and retesting):
+            if f.direction != trend:
+                continue
+            fresh = f.inverted_at >= 0 and 0 <= (i - f.inverted_at) <= self.signal_window
+            key = (round(f.bottom, 2), round(f.top, 2), f.inverted_at)
+            if not fresh or key in self._signaled:
                 continue
 
             score = 0.0
@@ -422,6 +431,7 @@ class PBModel:
             if score < self.threshold:
                 continue
 
+            self._signaled.add(key)        # one limit per inverted iFVG
             candidate = self._build_setup(bar, f, trend, score, reasons)
             if best is None or candidate.confluence > best.confluence:
                 best = candidate

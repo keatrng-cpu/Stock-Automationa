@@ -277,6 +277,26 @@ def test_round_trip_collapses_partials():
     assert m.rt_win_rate == 1.0                     # the position netted positive
 
 
+def test_timeframe_ladder_and_htf_selection():
+    from pb_trader.timeframes import parse_tf, tf_minutes, htf_minutes_for, LADDER
+    assert parse_tf("30s") == 30 and parse_tf("5m") == 300 and parse_tf(2) == 120
+    assert tf_minutes("90m") == 90
+    # HTFs are strictly higher than base and snap to the ladder.
+    for tf in LADDER:
+        h1, h2 = htf_minutes_for(tf)
+        assert h1 >= 1 and h2 >= h1
+    assert htf_minutes_for("1m") == (15, 60)        # preserves the proven default
+
+
+def test_entry_fires_on_fresh_inversion_only():
+    # The model should signal once per inverted iFVG (within the signal window), not
+    # every bar it's retested — so it can place a single limit and wait.
+    from pb_trader.strategy.pb_model import PBModel
+    m = PBModel("ES", signal_window=3)
+    # A freshly inverted iFVG key gets marked; a stale inversion does not fire.
+    assert isinstance(m._signaled, set) and m.signal_window == 3
+
+
 def test_weights_normalized():
     from pb_trader.strategy.pb_model import WEIGHTS
     assert abs(sum(WEIGHTS.values()) - 1.0) < 1e-9

@@ -36,8 +36,11 @@ def load_series(symbols, source_name="synthetic", bars=5000, start=None, end=Non
                 timeframe="1m") -> dict:
     """Load bar series once; reusable across many backtests (e.g. the optimizer)."""
     from .data import GENERATORS
-    source = get_source(source_name, bars=bars) if source_name in GENERATORS \
-        else get_source(source_name)
+    from .timeframes import parse_tf
+    if source_name in GENERATORS:
+        source = get_source(source_name, bars=bars, tf_seconds=parse_tf(timeframe))
+    else:
+        source = get_source(source_name)
     return {s: source.history(s, start, end, timeframe) for s in symbols}
 
 
@@ -61,6 +64,11 @@ def run_backtest(symbols: list[str], source_name: str = "synthetic",
     mk = model_kwargs or {}
     threshold = mk.pop("confluence_threshold", settings.confluence_threshold)
     mk.setdefault("tp_max_r", settings.tp_max_r)
+    # Master any base timeframe: auto-select the top-down HTFs from the ladder.
+    from .timeframes import htf_minutes_for
+    h1, h2 = htf_minutes_for(timeframe)
+    mk.setdefault("htf_minutes", h1)
+    mk.setdefault("htf2_minutes", h2)
     models = {s: PBModel(s, threshold, **mk) for s in symbols}
     broker = PaperBroker(start_equity or settings.account_equity, settings.slippage_ticks,
                          manage=settings.trade_mgmt, scale_at_r=settings.scale_at_r,
@@ -189,7 +197,9 @@ def main() -> None:
     p.add_argument("--bars", type=int, default=5000)
     p.add_argument("--start", default=None)
     p.add_argument("--end", default=None)
-    p.add_argument("--timeframe", default="1m")
+    from .timeframes import LADDER
+    p.add_argument("--timeframe", default="1m", choices=LADDER,
+                   help="base timeframe (30s..240m); HTFs auto-selected")
     p.add_argument("--micros", action="store_true", default=None,
                    help="force micro contracts (default: per PB_USE_MICROS / config)")
     p.add_argument("--equity-csv", default=None, help="write the equity curve to CSV")

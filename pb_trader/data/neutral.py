@@ -24,10 +24,10 @@ _START_PRICE = {"ES": 5500.0, "NQ": 19800.0, "MES": 5500.0, "MNQ": 19800.0}
 
 class NeutralSource:
     def __init__(self, bars: int = 5000, seed: int = 7, tf_minutes: int = 1,
-                 substeps: int = 12):
+                 substeps: int = 12, tf_seconds: int | None = None):
         self.bars = bars
         self.seed = seed
-        self.tf_minutes = tf_minutes
+        self.tf_seconds = tf_seconds if tf_seconds is not None else tf_minutes * 60
         self.substeps = substeps
 
     def _gen(self, symbol: str, n: int) -> list[Bar]:
@@ -57,7 +57,7 @@ class NeutralSource:
             out.append(Bar(t, round(o, 2), round(hi, 2), round(lo, 2),
                            round(c, 2), round(v, 0), symbol))
             price = c
-            t += timedelta(minutes=self.tf_minutes)
+            t += timedelta(seconds=self.tf_seconds)
         return out
 
     def history(self, symbol: str, start: str | None = None,

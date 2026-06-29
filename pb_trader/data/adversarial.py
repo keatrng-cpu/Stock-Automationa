@@ -20,11 +20,12 @@ from .neutral import NeutralSource
 
 
 class AdversarialSource:
-    def __init__(self, bars: int = 5000, seed: int = 13, tf_minutes: int = 1):
+    def __init__(self, bars: int = 5000, seed: int = 13, tf_minutes: int = 1,
+                 tf_seconds: int | None = None):
         self.bars = bars
         self.seed = seed
-        self.tf_minutes = tf_minutes
-        self._neutral = NeutralSource(bars=bars, seed=seed, tf_minutes=tf_minutes)
+        self._neutral = NeutralSource(bars=bars, seed=seed, tf_minutes=tf_minutes,
+                                      tf_seconds=tf_seconds)
 
     def _gen(self, symbol: str, n: int) -> list[Bar]:
         base = self._neutral._gen(symbol, n)
