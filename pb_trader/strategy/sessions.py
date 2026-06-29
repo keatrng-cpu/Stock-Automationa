@@ -35,6 +35,17 @@ class SessionTracker:
     pdh: Optional[float] = None            # previous day high / low
     pdl: Optional[float] = None
     sessions: dict = field(default_factory=dict)   # name -> (high, low) for current day
+    # Weekly / monthly PD arrays.
+    week: object = None
+    month: object = None
+    wk_high: float = float("-inf")
+    wk_low: float = _INF
+    mo_high: float = float("-inf")
+    mo_low: float = _INF
+    pwh: Optional[float] = None            # previous week high / low
+    pwl: Optional[float] = None
+    pmh: Optional[float] = None            # previous month high / low
+    pml: Optional[float] = None
 
     def update(self, bar: Bar) -> None:
         d = bar.ts.date()
@@ -49,6 +60,26 @@ class SessionTracker:
         else:
             self.cur_high = max(self.cur_high, bar.high)
             self.cur_low = min(self.cur_low, bar.low)
+
+        # Weekly roll (ISO week) and monthly roll.
+        wk = bar.ts.isocalendar()[:2]
+        if wk != self.week:
+            if self.week is not None and self.wk_high > float("-inf"):
+                self.pwh, self.pwl = self.wk_high, self.wk_low
+            self.week = wk
+            self.wk_high, self.wk_low = bar.high, bar.low
+        else:
+            self.wk_high = max(self.wk_high, bar.high)
+            self.wk_low = min(self.wk_low, bar.low)
+        mo = (bar.ts.year, bar.ts.month)
+        if mo != self.month:
+            if self.month is not None and self.mo_high > float("-inf"):
+                self.pmh, self.pml = self.mo_high, self.mo_low
+            self.month = mo
+            self.mo_high, self.mo_low = bar.high, bar.low
+        else:
+            self.mo_high = max(self.mo_high, bar.high)
+            self.mo_low = min(self.mo_low, bar.low)
 
         h, m = bar.ts.hour, bar.ts.minute
         if self.ny_open is None and (h > 8 or (h == 8 and m >= 30)) and h < 16:
@@ -70,7 +101,19 @@ class SessionTracker:
         for nm, (hi, lo) in self.sessions.items():
             if hi > float("-inf"):
                 out += [(f"{nm}H", hi), (f"{nm}L", lo)]
+        if self.pwh is not None:
+            out += [("PWH", self.pwh), ("PWL", self.pwl)]
+        if self.pmh is not None:
+            out += [("PMH", self.pmh), ("PML", self.pml)]
         return out
+
+    def weekly_pd_bias(self, price: float) -> Optional[Direction]:
+        """Weekly premium/discount: below the weekly equilibrium favors longs (discount),
+        above favors shorts (premium). Uses the previous week's range as the array."""
+        if self.pwh is None or self.pwl is None or self.pwh <= self.pwl:
+            return None
+        eq = (self.pwh + self.pwl) / 2.0
+        return Direction.BULL if price < eq else Direction.BEAR
 
     def is_significant(self, price: float, tol: float) -> Optional[str]:
         """Name of the significant level within `tol` of `price`, else None."""

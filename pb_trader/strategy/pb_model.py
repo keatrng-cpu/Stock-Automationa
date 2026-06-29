@@ -31,44 +31,50 @@ from .macros import current_macro
 from .liquidity import build_pools, detect_sweep, next_liquidity
 from .liquidity_draw import draw_on_liquidity
 from .order_blocks import (flip_broken_blocks, order_block_at_formation,
-                           retesting_block, retesting_breaker, update_block_states)
+                           retesting_block, retesting_breaker, retesting_propulsion,
+                           update_block_states)
 from .pd_arrays import consequent_encroachment, detect_bpr, in_bpr
 from .sessions import SessionTracker
 from .structure import (StructureState, detect_cisd, detect_rejection_block,
                         find_swings, premium_discount)
 from .tjr import DailyPO3, current_killzone, detect_mss
-from .voids import nearest_unfilled_void, new_void, update_void_states
+from .voids import nearest_unfilled_void, new_vacuum, new_void, update_void_states
 
 # SMC-grade confluence stack (sums to 1.0). Top-down: the primary HTF bias is weighted
 # heavily and also gates entries; entry-zone quality stacks iFVG + order block +
 # breaker + OTE; a second HTF and liquidity void add higher-order confluence.
-WEIGHTS = {
-    # PB Mechanical Model 2.0 core — the sequence (sweep → displacement-inversion →
-    # retest) and the price-action it acts on are weighted heaviest.
-    "mechanical_model": 0.08,  # the PB sequence fired IN ORDER
-    "structure": 0.08,        # LTF BOS/CHOCH aligned
-    "htf_bias": 0.08,         # primary higher-timeframe bias aligned (top-down)
-    "sweep": 0.08,            # liquidity raid
-    "ifvg": 0.08,             # inverted FVG retest
-    "htf2_bias": 0.04,        # second (slower) HTF agrees
-    "htf_fvg_nest": 0.04,     # LTF entry nests inside an HTF FVG (PD-array confluence)
-    "sweep_significant": 0.04,  # the raid took SIGNIFICANT liquidity (PDH/PDL/session)
-    "order_block": 0.04,      # fresh order block retest
-    "ote": 0.04,              # optimal trade entry (fib retracement)
-    "cisd": 0.04,             # change in state of delivery confirmation
-    "displacement": 0.04,     # aggressive displacement (PB)
-    "mss": 0.04,              # TJR market structure shift
-    "pd": 0.03,               # premium/discount of the dealing range
-    "sponsored": 0.03,        # the FVG is sponsored (institutional volume) — PB
-    "breaker": 0.03,          # breaker block retest
-    "bpr": 0.03,              # entry sits in a balanced price range
-    "rejection": 0.03,        # rejection block (long-wick rejection) aligned
-    "opening_bias": 0.04,     # price vs true day open aligns
-    "void": 0.02,             # unfilled liquidity void in trade direction
-    "killzone": 0.02,
-    "macro": 0.02,            # inside an ICT macro window
-    "daily_bias": 0.03,       # TJR PO3 daily bias
+# Relative confluence weights — auto-normalized to sum to 1.0 (so concepts can be added
+# without hand-tuning). PB Mechanical Model core + the price action it acts on are heaviest.
+_RAW_WEIGHTS = {
+    "mechanical_model": 8,    # the PB sequence fired IN ORDER (sweep→displ-inv→retest)
+    "structure": 8,           # LTF BOS/CHOCH aligned
+    "htf_bias": 8,            # primary higher-timeframe bias aligned (top-down)
+    "sweep": 8,               # liquidity raid
+    "ifvg": 8,                # inverted FVG retest
+    "htf2_bias": 4,           # second (slower) HTF agrees
+    "htf_fvg_nest": 4,        # LTF entry nests inside an HTF FVG (PD-array confluence)
+    "sweep_significant": 4,   # the raid took SIGNIFICANT liquidity (PDH/PDL/session)
+    "weekly_pd": 4,           # weekly premium/discount + PWH/PWL/PMH/PML draws aligned
+    "order_block": 4,         # fresh order block retest
+    "ote": 4,                 # optimal trade entry (fib retracement)
+    "cisd": 4,                # change in state of delivery confirmation
+    "displacement": 4,        # aggressive displacement (PB)
+    "mss": 4,                 # TJR market structure shift
+    "opening_bias": 4,        # price vs true day open aligns
+    "pd": 3,                  # premium/discount of the dealing range
+    "sponsored": 3,           # the FVG is sponsored (institutional volume) — PB
+    "breaker": 3,             # breaker block retest
+    "bpr": 3,                 # entry sits in a balanced price range
+    "rejection": 3,           # rejection block (long-wick rejection) aligned
+    "propulsion": 3,          # stacked order blocks propelling the move (ICT)
+    "daily_bias": 3,          # TJR PO3 daily bias
+    "void": 2,                # unfilled liquidity void in trade direction
+    "vacuum": 2,              # vacuum block (price gap) to be rebalanced
+    "killzone": 2,
+    "macro": 2,               # inside an ICT macro window
 }
+_W_TOTAL = sum(_RAW_WEIGHTS.values())
+WEIGHTS = {k: v / _W_TOTAL for k, v in _RAW_WEIGHTS.items()}
 
 
 class PBModel:
@@ -121,6 +127,7 @@ class PBModel:
         self.blocks: list = []
         self.breakers: list = []
         self.voids: list = []
+        self.vacuums: list = []
         self.htf_trend: Optional[Direction] = None
         self.htf2_trend: Optional[Direction] = None
         self._htf_fvgs: list = []
@@ -189,6 +196,9 @@ class PBModel:
         nv = new_void(self.bars)
         if nv is not None:
             self.voids.append(nv)
+        vac = new_vacuum(self.bars)         # vacuum block (true price gap)
+        if vac is not None:
+            self.vacuums.append(vac)
 
         update_fvg_states(self.fvgs, bar, i)
         update_block_states(self.blocks, bar)
@@ -200,6 +210,9 @@ class PBModel:
         self.blocks = self.blocks[-40:]
         self.breakers = self.breakers[-40:]
         self.voids = self.voids[-40:]
+        self.vacuums = self.vacuums[-20:]
+        for v in self.vacuums:
+            update_void_states([v], bar)
 
         # Structure + liquidity pools from swings over a recent window (LTF structure
         # only needs recent swings; the long-term picture comes from the HTF bias).
@@ -337,6 +350,11 @@ class PBModel:
                 score += WEIGHTS["breaker"]
                 reasons.append("breaker block retest")
 
+            # Propulsion block: stacked same-direction order blocks propelling the move.
+            if retesting_propulsion(self.blocks, trend, bar, tol=8 * self.tick):
+                score += WEIGHTS["propulsion"]
+                reasons.append("propulsion block (stacked OBs)")
+
             # OTE: entry sits in the configured fib retracement of the leg (reuse the
             # cached dealing range instead of recomputing swings).
             side_for_ote = Side.LONG if trend is Direction.BULL else Side.SHORT
@@ -351,6 +369,11 @@ class PBModel:
             if nearest_unfilled_void(self.voids, entry_price, trend) is not None:
                 score += WEIGHTS["void"]
                 reasons.append("unfilled liquidity void ahead")
+
+            # Vacuum block: an unfilled price gap ahead to be rebalanced.
+            if nearest_unfilled_void(self.vacuums, entry_price, trend) is not None:
+                score += WEIGHTS["vacuum"]
+                reasons.append("vacuum block (price gap) ahead")
 
             dq = self._displacement()
             score += WEIGHTS["displacement"] * dq
@@ -384,6 +407,12 @@ class PBModel:
             if ob is not None and ob == trend:
                 score += WEIGHTS["opening_bias"]
                 reasons.append(f"opening-price bias {ob.value} (vs day open)")
+
+            # Weekly PD array: weekly premium/discount aligns with the trade direction.
+            wpd = self.sessions.weekly_pd_bias(bar.close)
+            if wpd is not None and wpd == trend:
+                score += WEIGHTS["weekly_pd"]
+                reasons.append(f"weekly {'discount' if trend is Direction.BULL else 'premium'} (PD array)")
 
             # Add the live condition read to the rationale.
             if self.conditions:
@@ -447,6 +476,8 @@ class PBModel:
         ("breaker block", "breaker"), ("OTE zone", "ote"),
         ("ICT macro", "macro"), ("killzone", "killzone"),
         ("opening-price bias", "opening_bias"), ("PO3 daily bias", "po3"),
+        ("propulsion block", "propulsion"), ("vacuum block", "vacuum"),
+        ("weekly", "weekly_pd"),
     )
 
     def _features(self, reasons: list[str], bar: Bar) -> dict:

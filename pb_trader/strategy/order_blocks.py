@@ -123,6 +123,27 @@ def find_breakers(blocks: list[OrderBlock], bars: list[Bar]) -> list[BreakerBloc
     return breakers
 
 
+def retesting_propulsion(blocks: list[OrderBlock], direction: Direction, bar: Bar,
+                         tol: float) -> bool:
+    """Propulsion block (ICT): price retests an order block that is STACKED with another
+    same-direction unmitigated block nearby — the move is propelling off layered demand
+    (bull) or supply (bear), a higher-probability continuation than a lone block.
+    """
+    aligned = [b for b in blocks if b.direction is direction and not b.mitigated]
+    here = [b for b in aligned
+            if b.contains(bar.low) or b.contains(bar.high) or b.contains(bar.close)]
+    if not here:
+        return False
+    ref = here[0]
+    # Is there a second aligned block stacked within `tol` of the retested one?
+    for b in aligned:
+        if b is ref:
+            continue
+        if abs(b.mid - ref.mid) <= tol:
+            return True
+    return False
+
+
 def retesting_breaker(breakers: list[BreakerBlock], direction: Direction,
                       bar: Bar) -> bool:
     for bk in breakers:

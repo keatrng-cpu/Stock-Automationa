@@ -48,6 +48,27 @@ def new_void(bars: list[Bar], atr_n: int = 14, mult: float = 2.5):
     return None
 
 
+def new_vacuum(bars: list[Bar], atr_n: int = 14, mult: float = 1.5):
+    """Vacuum block (ICT): a true price GAP between consecutive bars (prev close → open)
+    bigger than `mult`*ATR — a low-liquidity vacuum price tends to revisit to rebalance.
+    Distinct from an FVG (which is intrabar overlap); this is an actual session/news gap.
+    """
+    if len(bars) < atr_n + 2:
+        return None
+    a = atr(bars, atr_n)
+    if a <= 0:
+        return None
+    prev, cur = bars[-2], bars[-1]
+    gap = cur.open - prev.close
+    if gap >= mult * a:        # gapped up -> bullish vacuum below
+        return LiquidityVoid(Direction.BULL, top=cur.open, bottom=prev.close,
+                             ts=cur.ts, index=len(bars) - 1)
+    if -gap >= mult * a:       # gapped down -> bearish vacuum above
+        return LiquidityVoid(Direction.BEAR, top=prev.close, bottom=cur.open,
+                             ts=cur.ts, index=len(bars) - 1)
+    return None
+
+
 def update_void_states(voids: list[LiquidityVoid], bar: Bar) -> None:
     for v in voids:
         if not v.filled and (v.contains(bar.low) or v.contains(bar.high)):

@@ -250,6 +250,53 @@ def _setup(symbol="ES", side=Side.LONG, conf=0.80, hour=10):
     return s
 
 
+def test_weights_normalized():
+    from pb_trader.strategy.pb_model import WEIGHTS
+    assert abs(sum(WEIGHTS.values()) - 1.0) < 1e-9
+    assert WEIGHTS["mechanical_model"] == max(WEIGHTS.values())   # PB core weighted top
+
+
+def test_propulsion_stacked_blocks():
+    from datetime import datetime
+    from pb_trader.models import Bar, Direction, OrderBlock
+    from pb_trader.strategy.order_blocks import retesting_propulsion
+    ts = datetime(2026, 6, 26)
+    blocks = [OrderBlock(Direction.BULL, top=101, bottom=100, ts=ts, index=1),
+              OrderBlock(Direction.BULL, top=100.5, bottom=99.5, ts=ts, index=2)]
+    bar = Bar(ts, 100.3, 100.6, 100.0, 100.4, 10, "ES")   # retesting both stacked blocks
+    assert retesting_propulsion(blocks, Direction.BULL, bar, tol=2.0) is True
+    lone = [OrderBlock(Direction.BULL, top=101, bottom=100, ts=ts, index=1)]
+    assert retesting_propulsion(lone, Direction.BULL, bar, tol=2.0) is False
+
+
+def test_vacuum_gap_detection():
+    from datetime import datetime, timedelta
+    from pb_trader.strategy.voids import new_vacuum
+    from pb_trader.models import Bar, Direction
+    t = datetime(2026, 6, 26, 9, 30)
+    bars = [Bar(t + timedelta(minutes=i), 100, 100.5, 99.5, 100, 10, "ES") for i in range(16)]
+    # Big gap up: prev close 100, next open 110.
+    bars.append(Bar(bars[-1].ts + timedelta(minutes=1), 110, 111, 109, 110, 10, "ES"))
+    v = new_vacuum(bars, atr_n=14, mult=1.5)
+    assert v is not None and v.direction is Direction.BULL
+
+
+def test_weekly_pd_bias():
+    from datetime import datetime, timedelta
+    from pb_trader.strategy.sessions import SessionTracker
+    from pb_trader.models import Bar, Direction
+    st = SessionTracker()
+    # Week 1 range 90..110.
+    t = datetime(2026, 6, 22, 0, 0)     # a Monday
+    for px in (100, 110, 90, 100):
+        st.update(Bar(t, px, px, px, px, 10, "ES")); t += timedelta(days=1)
+    # Next week -> prev-week range becomes the PD array (eq=100).
+    nxt = datetime(2026, 6, 29, 0, 0)
+    st.update(Bar(nxt, 95, 95, 95, 95, 10, "ES"))
+    assert st.weekly_pd_bias(95) is Direction.BULL    # below weekly eq = discount
+    assert st.weekly_pd_bias(108) is Direction.BEAR   # above = premium
+
+
 def test_sponsored_fvg_volume():
     from datetime import datetime, timedelta
     from pb_trader.strategy.fvg import new_fvg

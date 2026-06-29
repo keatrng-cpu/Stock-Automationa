@@ -93,6 +93,18 @@ Both add confluence when the entry coincides with them (they often stack with th
 Sum ∈ [0,1]. **≥ 0.75 ⇒ A+ candidate.** Chosen after HTF-alignment + mandatory-sweep +
 conditions + news gates pass.
 
+### Advanced ICT/PB arrays
+- **PB Mechanical Model** (`mechanical_model`): the sequence is enforced — the iFVG must
+  invert *after* the sweep, with displacement. Order is the edge. Heaviest weight.
+- **Sponsored FVGs / rejection blocks**: institutional-volume gaps; long-wick rejections.
+- **Propulsion blocks** (`order_blocks.retesting_propulsion`): stacked same-direction
+  order blocks propelling the move.
+- **Vacuum blocks** (`voids.new_vacuum`): true price gaps (prev close → open) to rebalance.
+- **Weekly/Monthly PD arrays** (`sessions.py`): PWH/PWL/PMH/PML as major draws + weekly
+  premium/discount bias.
+- Confluence weights are relative and **auto-normalized** to sum to 1.0 (26 components),
+  so concepts can be added without re-tuning the A+ bar.
+
 ### Deep ICT refinements
 - **Significant-liquidity sweeps** (`sessions.py`): the model tracks PDH/PDL, session
   highs/lows (Asia/London/NY), the true day open and the 08:30 open. A sweep that takes
