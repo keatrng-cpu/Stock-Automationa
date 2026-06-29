@@ -250,6 +250,33 @@ def _setup(symbol="ES", side=Side.LONG, conf=0.80, hour=10):
     return s
 
 
+def test_neutral_and_adversarial_sources():
+    from pb_trader.data import get_source
+    for name in ("neutral", "adversarial"):
+        src = get_source(name, bars=500)
+        bars = src.history("ES")
+        assert len(bars) == 500
+        assert all(b.high >= b.low and b.high >= b.close >= 0 for b in bars)
+    # Determinism: same seed -> same data.
+    a = get_source("neutral", bars=200).history("ES")
+    b = get_source("neutral", bars=200).history("ES")
+    assert [x.close for x in a] == [x.close for x in b]
+
+
+def test_round_trip_collapses_partials():
+    from pb_trader.analytics import compute_metrics
+    from pb_trader.models import Trade
+    t0 = datetime(2026, 6, 26, 9, 30)
+    # One position: a +1R scale partial (win) + a breakeven runner (~0) at same opened_ts.
+    trades = [
+        Trade("ES", Side.LONG, 1, 5000, 5010, t0, t0, pnl=50, r_multiple=1.0, reason="scale"),
+        Trade("ES", Side.LONG, 1, 5000, 5000, t0, t0, pnl=-1, r_multiple=0.0, reason="be-stop"),
+    ]
+    m = compute_metrics(trades, 10_000)
+    assert m.trades == 2 and m.round_trips == 1     # two legs, ONE position
+    assert m.rt_win_rate == 1.0                     # the position netted positive
+
+
 def test_weights_normalized():
     from pb_trader.strategy.pb_model import WEIGHTS
     assert abs(sum(WEIGHTS.values()) - 1.0) < 1e-9

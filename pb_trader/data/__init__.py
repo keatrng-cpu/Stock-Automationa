@@ -10,6 +10,12 @@ def get_source(name: str, **kwargs) -> DataSource:
     name = (name or "synthetic").lower()
     if name == "synthetic":
         return SyntheticSource(**kwargs)
+    if name == "neutral":
+        from .neutral import NeutralSource
+        return NeutralSource(**kwargs)
+    if name == "adversarial":
+        from .adversarial import AdversarialSource
+        return AdversarialSource(**kwargs)
     if name == "csv":
         from .csv_source import CSVSource
         return CSVSource(**kwargs)

@@ -28,6 +28,11 @@ class Metrics:
     avg_loss: float = 0.0
     expectancy_r: float = 0.0
     win_rate: float = 0.0
+    # Honest round-trip stats: scale-out partials collapsed back into one position, so
+    # a banked partial + breakeven runner counts as ONE outcome, not two "wins".
+    round_trips: int = 0
+    rt_win_rate: float = 0.0
+    rt_expectancy_r: float = 0.0
     equity_curve: list[float] = field(default_factory=list)
 
     def as_dict(self) -> dict:
@@ -77,6 +82,20 @@ def compute_metrics(trades: list[Trade], start_equity: float) -> Metrics:
         m.sharpe = (mean / sd * math.sqrt(len(rets))) if sd > 0 else 0.0
 
     m.equity_curve = curve
+
+    # Collapse legs sharing (symbol, opened_ts) into round-trip positions for honest
+    # win-rate / expectancy (a scale partial + its runner = one position outcome).
+    rt: dict = {}
+    for t in trades:
+        key = (t.symbol, t.opened_ts)
+        agg = rt.setdefault(key, [0.0, 0.0])
+        agg[0] += t.pnl
+        agg[1] += t.r_multiple
+    m.round_trips = len(rt)
+    if rt:
+        rt_wins = sum(1 for pnl, _ in rt.values() if pnl >= 0)
+        m.rt_win_rate = rt_wins / m.round_trips
+        m.rt_expectancy_r = sum(r for _, r in rt.values()) / m.round_trips
     return m
 
 
