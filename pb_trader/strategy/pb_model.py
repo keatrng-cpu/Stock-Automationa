@@ -31,6 +31,8 @@ from .liquidity import build_pools, detect_sweep, next_liquidity
 from .liquidity_draw import draw_on_liquidity
 from .order_blocks import (flip_broken_blocks, order_block_at_formation,
                            retesting_block, retesting_breaker, update_block_states)
+from .pd_arrays import consequent_encroachment, detect_bpr, in_bpr
+from .sessions import SessionTracker
 from .structure import StructureState, find_swings, premium_discount
 from .tjr import DailyPO3, current_killzone, detect_mss
 from .voids import nearest_unfilled_void, new_void, update_void_states
@@ -39,20 +41,23 @@ from .voids import nearest_unfilled_void, new_void, update_void_states
 # heavily and also gates entries; entry-zone quality stacks iFVG + order block +
 # breaker + OTE; a second HTF and liquidity void add higher-order confluence.
 WEIGHTS = {
-    "structure": 0.13,    # LTF BOS/CHOCH aligned
-    "htf_bias": 0.13,     # primary higher-timeframe bias aligned (top-down)
-    "htf2_bias": 0.07,    # second (slower) HTF agrees
-    "pd": 0.06,           # premium/discount of the dealing range
-    "sweep": 0.13,        # liquidity raid
-    "ifvg": 0.13,         # inverted FVG retest
-    "order_block": 0.07,  # fresh order block retest
-    "breaker": 0.05,      # breaker block retest
-    "ote": 0.07,          # optimal trade entry (fib retracement)
+    "structure": 0.11,        # LTF BOS/CHOCH aligned
+    "htf_bias": 0.11,         # primary higher-timeframe bias aligned (top-down)
+    "htf2_bias": 0.06,        # second (slower) HTF agrees
+    "pd": 0.05,               # premium/discount of the dealing range
+    "sweep": 0.11,            # liquidity raid
+    "sweep_significant": 0.05,  # the raid took SIGNIFICANT liquidity (PDH/PDL/session)
+    "ifvg": 0.11,             # inverted FVG retest
+    "order_block": 0.06,      # fresh order block retest
+    "breaker": 0.04,          # breaker block retest
+    "ote": 0.06,              # optimal trade entry (fib retracement)
+    "bpr": 0.04,              # entry sits in a balanced price range
     "displacement": 0.05,
-    "mss": 0.05,          # TJR market structure shift
-    "void": 0.02,         # unfilled liquidity void in trade direction
+    "mss": 0.05,              # TJR market structure shift
+    "void": 0.02,             # unfilled liquidity void in trade direction
     "killzone": 0.02,
-    "daily_bias": 0.02,   # TJR PO3 daily bias
+    "daily_bias": 0.03,       # TJR PO3 daily bias
+    "opening_bias": 0.03,     # price vs true day open aligns
 }
 
 
@@ -74,7 +79,8 @@ class PBModel:
                  tp_max_r: float = 3.0,
                  min_stop_ticks: int = 8,
                  require_sweep: bool = True,
-                 min_displacement: float = 0.0):
+                 min_displacement: float = 0.0,
+                 entry_mode: str = "ce"):     # "ce" = consequent encroachment, "edge"
         self.symbol = symbol
         self.threshold = confluence_threshold
         self.swing_k = swing_k
@@ -93,7 +99,11 @@ class PBModel:
         self.min_stop_ticks = min_stop_ticks
         self.require_sweep = require_sweep
         self.min_displacement = min_displacement
+        self.entry_mode = entry_mode
         self.tick = CONTRACTS.get(symbol, {}).get("tick", 0.25)
+        self.sessions = SessionTracker()
+        self._sweep_significant: Optional[str] = None
+        self._bprs: list = []
         self.bars: list[Bar] = []
         self.struct = StructureState()
         self.po3 = DailyPO3()
@@ -125,6 +135,7 @@ class PBModel:
     def on_bar(self, bar: Bar) -> Optional[Setup]:
         self.bars.append(bar)
         self.po3.update(bar)
+        self.sessions.update(bar)
         # Bound history to keep per-bar cost ~constant (structure only needs recent bars).
         # Safe: swings/FVGs are recomputed each bar, so trimming can't corrupt state.
         if len(self.bars) > self.max_history:
@@ -189,14 +200,20 @@ class PBModel:
         self._range_high = next((s.price for s in reversed(swings) if s.kind == "high"), None)
         self._range_low = next((s.price for s in reversed(swings) if s.kind == "low"), None)
 
+        self._bprs = detect_bpr(self.fvgs)
+
         sweep = detect_sweep(self.pools, bar)
         if sweep:
             self._recent_sweep = sweep
             self._sweep_age = 0
+            # Grade the sweep: did it take SIGNIFICANT liquidity (PDH/PDL/session/open)?
+            tol = 6 * self.tick
+            self._sweep_significant = self.sessions.is_significant(sweep.price, tol)
         elif self._recent_sweep:
             self._sweep_age += 1
             if self._sweep_age > 10:       # sweep edge decays
                 self._recent_sweep = None
+                self._sweep_significant = None
 
         return self._evaluate(bar, i)
 
@@ -246,9 +263,18 @@ class PBModel:
             if self._recent_sweep is not None:
                 score += WEIGHTS["sweep"]
                 reasons.append(f"liquidity sweep: {self._recent_sweep.kind} @ {self._recent_sweep.price:.2f}")
+                # Bonus: the sweep took SIGNIFICANT liquidity (PDH/PDL/session/open).
+                if self._sweep_significant:
+                    score += WEIGHTS["sweep_significant"]
+                    reasons.append(f"significant liquidity taken: {self._sweep_significant}")
 
             score += WEIGHTS["ifvg"]
             reasons.append(f"iFVG retest [{f.bottom:.2f}, {f.top:.2f}]")
+
+            # Balanced Price Range: entry sits where bull/bear FVGs overlap (delivered both ways).
+            if in_bpr(consequent_encroachment(f), self._bprs):
+                score += WEIGHTS["bpr"]
+                reasons.append("entry in balanced price range (BPR)")
 
             # HTF bias alignment (top-down confluence), primary + secondary timeframe.
             if self.htf_trend is not None and self.htf_trend == trend:
@@ -304,6 +330,12 @@ class PBModel:
                 score += WEIGHTS["daily_bias"]
                 reasons.append(f"PO3 daily bias {self.po3.bias.value} aligned")
 
+            # ICT opening-price bias: price vs the true day open agrees with the trade.
+            ob = self.sessions.opening_bias(bar.close)
+            if ob is not None and ob == trend:
+                score += WEIGHTS["opening_bias"]
+                reasons.append(f"opening-price bias {ob.value} (vs day open)")
+
             # Add the live condition read to the rationale.
             if self.conditions:
                 reasons.append("conditions: " + "; ".join(self.conditions.reasons[:1]))
@@ -320,9 +352,11 @@ class PBModel:
     def _build_setup(self, bar: Bar, f, trend: Direction, score: float,
                      reasons: list[str]) -> Setup:
         min_stop = self.min_stop_ticks * self.tick
+        # ICT consequent encroachment: fill at the gap's 50% (better price) vs the edge.
+        ce = consequent_encroachment(f)
         if trend is Direction.BULL:
             side = Side.LONG
-            entry = f.top                       # retest of inverted gap as support
+            entry = ce if self.entry_mode == "ce" else f.top
             stop = min(f.bottom, bar.low) - 0.25
             stop = min(stop, entry - min_stop)  # enforce a minimum stop distance
             risk = entry - stop
@@ -336,7 +370,7 @@ class PBModel:
             targets = [entry + reward_r * risk]
         else:
             side = Side.SHORT
-            entry = f.bottom
+            entry = ce if self.entry_mode == "ce" else f.bottom
             stop = max(f.top, bar.high) + 0.25
             stop = max(stop, entry + min_stop)  # enforce a minimum stop distance
             risk = stop - entry

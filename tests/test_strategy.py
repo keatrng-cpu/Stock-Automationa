@@ -250,6 +250,37 @@ def _setup(symbol="ES", side=Side.LONG, conf=0.80, hour=10):
     return s
 
 
+def test_session_tracker_pdh_and_opening_bias():
+    from datetime import datetime, timedelta
+    from pb_trader.strategy.sessions import SessionTracker
+    from pb_trader.models import Direction, Bar
+    st = SessionTracker()
+    # Day 1: range 99..103.
+    t = datetime(2026, 6, 26, 0, 0)
+    for px in (100, 103, 99, 101):
+        st.update(Bar(t, px, px + 1, px - 1, px, 10, "ES")); t += timedelta(hours=1)
+    # Day 2 opens -> day1 high/low become PDH/PDL.
+    d2 = datetime(2026, 6, 27, 0, 0)
+    st.update(Bar(d2, 102, 102.5, 101.5, 102, 10, "ES"))
+    assert st.pdh == 104 and st.pdl == 98          # 103+1 high, 99-1 low
+    assert st.day_open == 102
+    assert st.opening_bias(103) is Direction.BULL and st.opening_bias(101) is Direction.BEAR
+    assert st.is_significant(104.1, tol=0.25) == "PDH"
+
+
+def test_consequent_encroachment_and_bpr():
+    from pb_trader.strategy.pd_arrays import consequent_encroachment, detect_bpr, in_bpr
+    from pb_trader.models import Direction, FVG
+    from datetime import datetime
+    ts = datetime(2026, 6, 26)
+    bull = FVG(Direction.BULL, top=105, bottom=100, ts=ts, index=1)
+    assert consequent_encroachment(bull) == 102.5
+    bear = FVG(Direction.BEAR, top=104, bottom=101, ts=ts, index=2)
+    bprs = detect_bpr([bull, bear])
+    assert bprs and in_bpr(102.5, bprs)      # overlap zone 101..104 contains CE 102.5
+    assert not in_bpr(110, bprs)
+
+
 def test_news_reaction_blackout_and_caution():
     from pb_trader.news import EconomicCalendar
     from datetime import datetime

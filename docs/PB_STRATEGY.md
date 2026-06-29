@@ -72,23 +72,36 @@ Both add confluence when the entry coincides with them (they often stack with th
 
 | Component | Weight |
 |-----------|-------:|
-| LTF structure alignment (BOS/CHOCH) | 0.13 |
-| **HTF bias alignment (primary, top-down)** | 0.13 |
-| **HTF bias alignment (secondary TF)** | 0.07 |
-| Premium/discount of dealing range | 0.06 |
-| Liquidity sweep present | 0.13 |
-| iFVG inversion + retest | 0.13 |
-| **Order block retest** | 0.07 |
-| **Breaker block retest** | 0.05 |
-| **OTE (configurable fib retracement)** | 0.07 |
+| LTF structure alignment (BOS/CHOCH) | 0.11 |
+| HTF bias alignment (primary, top-down) | 0.11 |
+| HTF bias alignment (secondary TF) | 0.06 |
+| Premium/discount of dealing range | 0.05 |
+| Liquidity sweep present | 0.11 |
+| **Significant-liquidity sweep (PDH/PDL/session/open)** | 0.05 |
+| iFVG inversion + retest | 0.11 |
+| Order block retest | 0.06 |
+| Breaker block retest | 0.04 |
+| OTE (configurable fib retracement) | 0.06 |
+| **Balanced Price Range at entry** | 0.04 |
 | Displacement quality | 0.05 |
 | TJR MSS | 0.05 |
-| **Unfilled liquidity void ahead** | 0.02 |
+| Unfilled liquidity void ahead | 0.02 |
 | TJR killzone | 0.02 |
-| TJR PO3 daily bias | 0.02 |
+| TJR PO3 daily bias | 0.03 |
+| **ICT opening-price bias (vs true day open)** | 0.03 |
 
-Sum ∈ [0,1]. **≥ 0.75 ⇒ A+ candidate.** The highest-scoring candidate is chosen, and
-only after the HTF-alignment + conditions + news gates pass.
+Sum ∈ [0,1]. **≥ 0.75 ⇒ A+ candidate.** Chosen after HTF-alignment + mandatory-sweep +
+conditions + news gates pass.
+
+### Deep ICT refinements
+- **Significant-liquidity sweeps** (`sessions.py`): the model tracks PDH/PDL, session
+  highs/lows (Asia/London/NY), the true day open and the 08:30 open. A sweep that takes
+  *that* liquidity scores higher than raiding a random swing.
+- **Consequent Encroachment entries** (`pd_arrays.py`): fills at the 50% of the gap (the
+  CE / mean threshold) — ICT's optimal price — rather than the edge. (`entry_mode="ce"`.)
+- **Balanced Price Range**: where a bullish and bearish FVG overlap = delivered both ways
+  = high-probability reversal pocket; adds confluence when the entry sits inside one.
+- **Opening-price bias**: price above/below the true day open is the ICT daily-bias tell.
 
 ## 9. Analytics & tuning
 `analytics.py`, `optimize.py`
