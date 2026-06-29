@@ -10,12 +10,14 @@ from enum import Enum
 from typing import Optional
 
 
-# Instrument contract specs (full-size + micro). point_value = $ per 1.00 price move.
+# Instrument contract specs (full-size + micro).
+#   point_value = $ per 1.00 price move; tick = min price increment;
+#   commission   = approx round-turn commission+fees per contract (USD, configurable).
 CONTRACTS = {
-    "ES": {"point_value": 50.0, "tick": 0.25, "micro": "MES"},
-    "NQ": {"point_value": 20.0, "tick": 0.25, "micro": "MNQ"},
-    "MES": {"point_value": 5.0, "tick": 0.25, "micro": "MES"},
-    "MNQ": {"point_value": 2.0, "tick": 0.25, "micro": "MNQ"},
+    "ES": {"point_value": 50.0, "tick": 0.25, "micro": "MES", "commission": 4.0},
+    "NQ": {"point_value": 20.0, "tick": 0.25, "micro": "MNQ", "commission": 4.0},
+    "MES": {"point_value": 5.0, "tick": 0.25, "micro": "MES", "commission": 1.0},
+    "MNQ": {"point_value": 2.0, "tick": 0.25, "micro": "MNQ", "commission": 1.0},
 }
 
 
@@ -159,7 +161,7 @@ class Position:
 
 @dataclass
 class Trade:
-    """A closed round-trip trade."""
+    """A closed round-trip trade. `pnl` is NET of commission + slippage."""
     symbol: str
     side: Side
     qty: int
@@ -171,3 +173,6 @@ class Trade:
     r_multiple: float
     reason: str = ""
     tag: str = ""
+    gross_pnl: float = 0.0
+    commission: float = 0.0
+    slippage_cost: float = 0.0

@@ -49,6 +49,8 @@ class Settings:
     max_setups_per_session: int = _i("PB_MAX_SETUPS_PER_SESSION", 1)
     # A+ gate: never take a setup below 75% confluence.
     confluence_threshold: float = max(_f("PB_CONFLUENCE_THRESHOLD", 0.75), 0.75)
+    # Realistic cost model: per-side slippage in ticks (commission is per-contract in CONTRACTS).
+    slippage_ticks: float = _f("PB_SLIPPAGE_TICKS", 1.0)
 
     # Databento
     databento_api_key: str = os.environ.get("DATABENTO_API_KEY", "")

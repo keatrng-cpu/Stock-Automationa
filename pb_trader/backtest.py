@@ -46,7 +46,7 @@ def run_backtest(symbols: list[str], source_name: str = "synthetic",
     n = min(len(v) for v in series.values())
 
     models = {s: PBModel(s, settings.confluence_threshold) for s in symbols}
-    broker = PaperBroker(settings.account_equity)
+    broker = PaperBroker(settings.account_equity, settings.slippage_ticks)
     stats = Stats()
     peak = broker.equity
     setups_this_session = 0
@@ -116,6 +116,8 @@ def _print_report(stats: Stats, broker: PaperBroker) -> None:
     print(f"  Start equity      : ${broker.start_equity:,.2f}")
     print(f"  End equity        : ${broker.equity:,.2f}")
     print(f"  Net P&L           : ${broker.equity - broker.start_equity:,.2f}")
+    print(f"  Commissions paid  : ${broker.total_commission:,.2f}")
+    print(f"  Slippage cost     : ${broker.total_slippage:,.2f}")
     print(f"  Trades            : {stats.trades}")
     print(f"  Win rate          : {stats.win_rate:.1%}")
     print(f"  Expectancy        : {stats.expectancy_r:+.2f} R / trade")

@@ -13,11 +13,17 @@ from ..models import CONTRACTS, Bar, Order, OrderType, Position, Side, Trade
 
 
 class PaperBroker:
-    def __init__(self, equity: float = 10_000.0):
+    def __init__(self, equity: float = 10_000.0, slippage_ticks: float = 1.0):
         self._equity = equity
         self.start_equity = equity
+        self.slippage_ticks = slippage_ticks
         self.positions: list[Position] = []
         self.trades: list[Trade] = []
+        self.total_commission = 0.0
+        self.total_slippage = 0.0
+
+    def _spec(self, symbol: str) -> dict:
+        return CONTRACTS.get(symbol, {"point_value": 1.0, "tick": 0.25, "commission": 0.0})
 
     @property
     def equity(self) -> float:
@@ -32,16 +38,20 @@ class PaperBroker:
         return None
 
     def submit_at(self, order: Order, fill_price: float, ts) -> Position:
+        # Entry slippage: market fills go against you by `slippage_ticks`.
+        spec = self._spec(order.symbol)
+        slip = self.slippage_ticks * spec["tick"]
+        entry = fill_price + slip if order.side is Side.LONG else fill_price - slip
         pos = Position(
             symbol=order.symbol, side=order.side, qty=order.qty,
-            entry=fill_price, stop=order.stop, targets=list(order.targets),
+            entry=entry, stop=order.stop, targets=list(order.targets),
             opened_ts=ts, tag=order.tag,
         )
         self.positions.append(pos)
         return pos
 
     def _point_value(self, symbol: str) -> float:
-        return CONTRACTS.get(symbol, {"point_value": 1.0})["point_value"]
+        return self._spec(symbol)["point_value"]
 
     def on_bar(self, bar: Bar) -> list[Trade]:
         closed: list[Trade] = []
@@ -77,15 +87,31 @@ class PaperBroker:
         return (None, "")
 
     def _close(self, pos: Position, exit_price: float, bar: Bar, reason: str) -> Trade:
-        pv = self._point_value(pos.symbol)
+        spec = self._spec(pos.symbol)
+        pv = spec["point_value"]
         direction = 1 if pos.side is Side.LONG else -1
-        points = (exit_price - pos.entry) * direction
-        pnl = points * pv * pos.qty
+
+        # Exit slippage: the fill goes against you by `slippage_ticks`.
+        slip = self.slippage_ticks * spec["tick"]
+        filled_exit = exit_price - slip if pos.side is Side.LONG else exit_price + slip
+
+        gross_points = (filled_exit - pos.entry) * direction
+        gross_pnl = gross_points * pv * pos.qty
+        commission = spec.get("commission", 0.0) * pos.qty           # round-turn
+        # Slippage cost = both legs (entry slip already in pos.entry, exit slip here).
+        slippage_cost = (self.slippage_ticks * spec["tick"]) * pv * pos.qty * 2
+        pnl = gross_pnl - commission
+
         self._equity += pnl
+        self.total_commission += commission
+        self.total_slippage += slippage_cost
+
         risk_points = abs(pos.entry - pos.stop)
-        r = (points / risk_points) if risk_points else 0.0
+        r = (gross_points / risk_points) if risk_points else 0.0
         return Trade(
-            symbol=pos.symbol, side=pos.side, qty=pos.qty, entry=pos.entry,
-            exit=round(exit_price, 2), opened_ts=pos.opened_ts, closed_ts=bar.ts,
+            symbol=pos.symbol, side=pos.side, qty=pos.qty, entry=round(pos.entry, 2),
+            exit=round(filled_exit, 2), opened_ts=pos.opened_ts, closed_ts=bar.ts,
             pnl=round(pnl, 2), r_multiple=round(r, 2), reason=reason, tag=pos.tag,
+            gross_pnl=round(gross_pnl, 2), commission=round(commission, 2),
+            slippage_cost=round(slippage_cost, 2),
         )

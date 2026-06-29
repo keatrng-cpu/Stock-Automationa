@@ -87,6 +87,26 @@ def test_position_sizing_respects_risk():
     assert micro.symbol == "MES" and micro.qty >= 1
 
 
+def test_costs_reduce_pnl():
+    from pb_trader.execution.paper import PaperBroker
+    from pb_trader.models import Order, OrderType
+
+    # Zero-cost broker vs realistic-cost broker on the same winning trade.
+    free = PaperBroker(100_000, slippage_ticks=0)
+    costed = PaperBroker(100_000, slippage_ticks=1)
+    order = Order("ES", Side.LONG, 1, OrderType.MARKET, price=5000, stop=4990,
+                  targets=[5020])
+    t0 = datetime(2026, 6, 26, 9, 30)
+    for b in (free, costed):
+        b.submit_at(order, 5000, t0)
+    exit_bar = Bar(datetime(2026, 6, 26, 10, 0), 5020, 5021, 5019, 5020, 100, "ES")
+    ft = free.on_bar(exit_bar)[0]
+    ct = costed.on_bar(exit_bar)[0]
+    assert ct.commission > 0 and ct.slippage_cost > 0
+    assert ct.pnl < ft.pnl                 # costs eat into profit
+    assert costed.total_commission == 4.0  # ES round-turn
+
+
 def test_validate_setup_min_rr():
     good = Setup("ES", Side.LONG, 5000, 4990, [5020], datetime(2026, 6, 26), 0.8)
     bad = Setup("ES", Side.LONG, 5000, 4990, [5005], datetime(2026, 6, 26), 0.8)
