@@ -28,6 +28,7 @@ from .fib import in_ote
 from .fvg import active_ifvgs, new_fvg, update_fvg_states
 from .htf import _bucket, htf_bias
 from .liquidity import build_pools, detect_sweep, next_liquidity
+from .liquidity_draw import draw_on_liquidity
 from .order_blocks import (flip_broken_blocks, order_block_at_formation,
                            retesting_block, retesting_breaker, update_block_states)
 from .structure import StructureState, find_swings, premium_discount
@@ -313,7 +314,9 @@ class PBModel:
             stop = min(f.bottom, bar.low) - 0.25
             stop = min(stop, entry - min_stop)  # enforce a minimum stop distance
             risk = entry - stop
-            tgt_pool = next_liquidity(self.pools, entry, "up")
+            # Target the draw on liquidity (external pool) first, then any liquidity.
+            dol = draw_on_liquidity(self.pools, entry, Direction.BULL)
+            tgt_pool = dol or next_liquidity(self.pools, entry, "up")
             raw = tgt_pool.price if (tgt_pool and tgt_pool.price > entry) \
                 else entry + 2 * risk
             reward_r = (raw - entry) / risk if risk > 0 else self.tp_min_r
@@ -325,7 +328,8 @@ class PBModel:
             stop = max(f.top, bar.high) + 0.25
             stop = max(stop, entry + min_stop)  # enforce a minimum stop distance
             risk = stop - entry
-            tgt_pool = next_liquidity(self.pools, entry, "down")
+            dol = draw_on_liquidity(self.pools, entry, Direction.BEAR)
+            tgt_pool = dol or next_liquidity(self.pools, entry, "down")
             raw = tgt_pool.price if (tgt_pool and tgt_pool.price < entry) \
                 else entry - 2 * risk
             reward_r = (entry - raw) / risk if risk > 0 else self.tp_min_r

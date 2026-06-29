@@ -50,6 +50,14 @@ mechanically. Quality over quantity — one A+ beats five B-setups.
 Re-analyze with precision using real levels they provide. Do **not** invent prices.
 Run the morning protocol: context → HTF bias → SMT → key levels → A+ setup → why → risk.
 
+## Tooling
+
+- **Session reports**: `python -m pb_trader.report --session morning|afternoon` runs the
+  full PB Elite protocol (context → HTF bias → SMT → key levels → A+ setup → risk → goal).
+- **Validation**: `python -m pb_trader.validate` runs backtest + optimizer + walk-forward
+  and prints a GO/NO-GO verdict driven by out-of-sample results.
+- **Goal tracking**: `pb_trader/goals.py` tracks the $1k→$10k→$50k→$100k journey.
+
 ## Working on this repo
 
 - Stack: Python, stdlib-only core (connectors are optional extras).

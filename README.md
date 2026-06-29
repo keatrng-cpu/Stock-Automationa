@@ -47,6 +47,11 @@ python -m pb_trader.backtest --bars 8000 --equity-csv journal/equity.csv
 python -m pb_trader.optimize --bars 12000 --metric expectancy_r
 # Walk-forward analysis — optimize on each window, trade it forward untouched (anti-overfit):
 python -m pb_trader.walkforward --bars 20000 --folds 5 --metric expectancy_r
+# ONE COMMAND: backtest + optimize + walk-forward + GO/NO-GO verdict:
+python -m pb_trader.validate --bars 16000
+# PB Elite session report (morning or afternoon protocol):
+python -m pb_trader.report --session morning
+python -m pb_trader.report --session afternoon
 # Run the paper-trading loop on synthetic data:
 python -m pb_trader.live --mode paper
 ```
@@ -103,6 +108,10 @@ You should see trades, an equity curve summary, win rate, expectancy, and max dr
 | `pb_trader/analytics.py` | Metrics (profit factor, Sharpe, DD), breakdowns, ASCII equity curve |
 | `pb_trader/optimize.py` | Parameter tuning harness with train/test robustness |
 | `pb_trader/walkforward.py` | Walk-forward analysis (rolling IS/OOS, compounding forward test) |
+| `pb_trader/validate.py` | One-command suite: backtest + optimize + walk-forward + verdict |
+| `pb_trader/report.py` | PB Elite morning/afternoon session report |
+| `pb_trader/goals.py` | $1k→$10k→$50k→$100k milestone tracking |
+| `pb_trader/strategy/liquidity_draw.py` | Draw on Liquidity + IRL/ERL + std-dev projections |
 | `pb_trader/live.py` | Paper/live trading loop + CLI |
 | `pb_trader/journal.py` | Trade journal (JSONL) |
 | `tests/` | Unit tests for the strategy primitives |

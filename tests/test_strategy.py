@@ -213,6 +213,40 @@ def test_tradovate_parse_fill_pairs():
     assert t.symbol == "MES" and t.side is Side.LONG and t.pnl == 100.0
 
 
+def test_goals_milestones():
+    from pb_trader import goals
+    assert goals.status(1_000).next_milestone == 10_000
+    assert goals.status(25_000).stage == 1 and goals.status(25_000).next_milestone == 50_000
+    assert goals.status(100_000).next_milestone is None
+    # positive expectancy -> finite trade estimate; non-positive -> None
+    assert goals.trades_to_next(1_000, 0.5, 0.02) > 0
+    assert goals.trades_to_next(1_000, -0.1, 0.02) is None
+
+
+def test_draw_on_liquidity():
+    from datetime import datetime
+    from pb_trader.models import Direction, LiquidityPool
+    from pb_trader.strategy.liquidity_draw import draw_on_liquidity, classify_liquidity
+    ts = datetime(2026, 6, 26)
+    pools = [LiquidityPool(5100, "BSL", ts), LiquidityPool(5050, "EQH", ts),
+             LiquidityPool(4950, "SSL", ts)]
+    up = draw_on_liquidity(pools, 5000, Direction.BULL)
+    assert up.price == 5050        # nearest buy-side above price
+    dn = draw_on_liquidity(pools, 5000, Direction.BEAR)
+    assert dn.price == 4950
+    rl = classify_liquidity(pools, 4900, 5060)
+    assert any(p.price == 5100 for p in rl.external)  # 5100 outside range
+    assert any(p.price == 5050 for p in rl.internal)
+
+
+def test_report_and_validate_smoke():
+    from pb_trader.report import build_report
+    txt = build_report(["ES", "NQ"], "synthetic", bars=2500, session="morning")
+    assert "PB ELITE" in txt and "GOAL PROGRESS" in txt
+    txt2 = build_report(["ES", "NQ"], "synthetic", bars=2500, session="afternoon")
+    assert "AFTERNOON" in txt2
+
+
 def test_walk_forward_runs():
     from pb_trader.walkforward import walk_forward
     res = walk_forward(["ES", "NQ"], bars=6000, folds=2, is_ratio=2,
