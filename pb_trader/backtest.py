@@ -12,6 +12,7 @@ import argparse
 from dataclasses import dataclass, field
 
 from .analytics import Metrics, compute_metrics, format_report
+from .brain import TradingBrain
 from .config import settings
 from .data import get_source
 from .execution.paper import PaperBroker
@@ -44,9 +45,13 @@ def run_backtest(symbols: list[str], source_name: str = "synthetic",
                  use_micros: bool | None = None, verbose: bool = True,
                  model_kwargs: dict | None = None, series: dict | None = None,
                  equity_csv: str | None = None,
-                 start_equity: float | None = None) -> BacktestResult:
+                 start_equity: float | None = None,
+                 brain: TradingBrain | None = None,
+                 use_brain: bool = True) -> BacktestResult:
     if use_micros is None:
         use_micros = settings.use_micros
+    if use_brain and brain is None:
+        brain = TradingBrain(base_threshold=settings.confluence_threshold)
     if series is None:
         series = load_series(symbols, source_name, bars, start, end, timeframe)
     symbols = list(series.keys())
@@ -68,11 +73,14 @@ def run_backtest(symbols: list[str], source_name: str = "synthetic",
                 last_session = sess
                 setups_this_session = 0
 
-            broker.on_bar(bar)  # process exits; trades retained on broker.trades
+            for trade in broker.on_bar(bar):    # process exits; brain learns from closes
+                if brain:
+                    brain.learn(trade, broker.equity)
 
             setup = models[s].on_bar(bar)
             if setup is None or setups_this_session >= settings.max_setups_per_session:
                 continue
+            setup.tag = f"{setup.confluence:.0%}"
 
             other = [o for o in symbols if o != s]
             if other:
@@ -90,7 +98,17 @@ def run_backtest(symbols: list[str], source_name: str = "synthetic",
             if sized.qty < 1:
                 continue
 
-            order = Order(symbol=sized.symbol, side=setup.side, qty=sized.qty,
+            # Executive brain: news/adaptive/memory judgment on top of the A+ setup.
+            qty = sized.qty
+            if brain:
+                dec = brain.decide(setup, broker.equity)
+                if not dec.take:
+                    continue
+                qty = max(0, int(round(sized.qty * dec.size_mult)))
+                if qty < 1:
+                    continue
+
+            order = Order(symbol=sized.symbol, side=setup.side, qty=qty,
                           type=OrderType.MARKET, price=setup.entry, stop=setup.stop,
                           targets=setup.targets, tag=f"{setup.confluence:.0%}")
             broker.submit_at(order, setup.entry, bar.ts)

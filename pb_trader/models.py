@@ -171,6 +171,7 @@ class Setup:
     confluence: float                 # 0..1
     reasons: list[str] = field(default_factory=list)
     session: str = ""
+    tag: str = ""                     # confluence bucket label, set at decision time
 
     @property
     def risk_points(self) -> float:

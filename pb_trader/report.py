@@ -115,8 +115,16 @@ def build_report(symbols, source_name="synthetic", bars=3000, session="morning",
         for r in setup.reasons:
             L.append(f"        - {r}")
 
-    # 8. Goal progress
-    L.append("\n  5) GOAL PROGRESS")
+    # 8. What the system has learned (persistent trade memory)
+    from .memory import TradeMemory
+    mem = TradeMemory(path="journal/memory.jsonl")
+    if mem.count:
+        L.append("\n  5) WHAT THE SYSTEM HAS LEARNED (from your past trades)")
+        for line in mem.summary(top=5).splitlines():
+            L.append("   " + line)
+
+    # 9. Goal progress
+    L.append("\n  6) GOAL PROGRESS")
     for line in goals.render(settings.account_equity, risk_pct=settings.risk_pct).splitlines():
         L.append("   " + line)
 

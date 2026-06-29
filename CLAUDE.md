@@ -39,6 +39,17 @@ Top-down multi-timeframe: HTF bias (resampled structure, default 15m) gates LTF 
 liquidity sweep (BSL/SSL/EQH/EQL) → LTF iFVG inversion + retest, stacked with order-block
 retest and OTE (0.62–0.79 fib) → displacement → SMT picks ES vs NQ. TJR overlays:
 killzones, Power-of-Three (AMD) daily bias, Market Structure Shift, breaker blocks.
+Targets aim at the Draw on Liquidity (external range liquidity).
+
+## Intelligence layer (the "brain")
+
+The model is *perception*; `brain.py` is *judgment*. On every A+ candidate the brain fuses:
+- **News** (`news.py`): blackout high-impact windows, caution around medium.
+- **Adaptive** (`adaptive.py`): cut size + raise the A+ bar after losing streaks/drawdown.
+- **Memory** (`memory.py`): nudge by how the setup's features (instrument/side/session/
+  confluence) have actually performed for you; veto setup types that keep losing.
+It learns from every closed trade (persisted to `journal/memory.jsonl` in live). All
+adjustments are explainable — no black box. It never gets reckless (defensive-only).
 
 ## Psychology
 

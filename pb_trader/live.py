@@ -11,11 +11,13 @@ from __future__ import annotations
 
 import argparse
 
+from .brain import TradingBrain
 from .config import settings
 from .data import get_source
 from .execution import get_broker
 from .execution.paper import PaperBroker
 from .journal import log_event
+from .memory import TradeMemory
 from .models import Order, OrderType
 from .risk import position_size, validate_setup
 from .strategy.pb_model import PBModel
@@ -42,6 +44,11 @@ def run_live(symbols: list[str], mode: str = "paper", source_name: str = "synthe
                            if mode == "paper" else {}))
     models = {s: PBModel(s, settings.confluence_threshold, tp_max_r=settings.tp_max_r)
               for s in symbols}
+    # Persistent trade memory so the brain remembers across sessions.
+    brain = TradingBrain(base_threshold=settings.confluence_threshold,
+                         memory=TradeMemory(path="journal/memory.jsonl"))
+    if brain.memory.count:
+        print(f"  brain loaded {brain.memory.count} past trades from memory")
     history: dict[str, list] = {s: [] for s in symbols}
     setups_today = 0
     last_day = None
@@ -51,6 +58,7 @@ def run_live(symbols: list[str], mode: str = "paper", source_name: str = "synthe
 
         if isinstance(broker, PaperBroker):
             for trade in broker.on_bar(bar):
+                brain.learn(trade, broker.equity)        # remember + adapt
                 log_event("trade", trade)
                 print(f"  CLOSED {trade.symbol} {trade.side.value} "
                       f"{trade.r_multiple:+.2f}R  P&L ${trade.pnl:+,.2f}  ({trade.reason})")
@@ -78,7 +86,15 @@ def run_live(symbols: list[str], mode: str = "paper", source_name: str = "synthe
             print(f"  [skip] {setup.symbol}: {sized.note}")
             continue
 
-        order = Order(symbol=sized.symbol, side=setup.side, qty=sized.qty,
+        # Executive brain: news/adaptive/memory judgment.
+        setup.tag = f"{setup.confluence:.0%}"
+        dec = brain.decide(setup, broker.equity)
+        if not dec.take:
+            print(f"  [brain skip] {setup.symbol}: {dec.reasons[-1] if dec.reasons else 'vetoed'}")
+            continue
+        qty = max(1, int(round(sized.qty * dec.size_mult)))
+
+        order = Order(symbol=sized.symbol, side=setup.side, qty=qty,
                       type=OrderType.MARKET, price=setup.entry, stop=setup.stop,
                       targets=setup.targets, tag=f"{setup.confluence:.0%}")
         log_event("signal", setup)

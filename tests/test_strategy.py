@@ -213,6 +213,65 @@ def test_tradovate_parse_fill_pairs():
     assert t.symbol == "MES" and t.side is Side.LONG and t.pnl == 100.0
 
 
+def _setup(symbol="ES", side=Side.LONG, conf=0.80, hour=10):
+    s = Setup(symbol, side, 5000, 4990, [5020], datetime(2026, 6, 26, hour, 0), conf)
+    s.tag = f"{conf:.0%}"
+    return s
+
+
+def test_news_reaction_blackout_and_caution():
+    from pb_trader.news import EconomicCalendar
+    from datetime import datetime
+    cal = EconomicCalendar()
+    cal.add(datetime(2026, 6, 26, 8, 30), "high", "NFP")
+    cal.add(datetime(2026, 6, 26, 14, 0), "medium", "FOMC minutes")
+    assert cal.reaction(datetime(2026, 6, 26, 8, 31)).mode == "blackout"
+    assert cal.reaction(datetime(2026, 6, 26, 14, 1)).mode == "caution"
+    assert cal.reaction(datetime(2026, 6, 26, 12, 0)).mode == "clear"
+
+
+def test_memory_learns_feature_edge():
+    from pb_trader.memory import TradeMemory
+    from pb_trader.models import Trade
+    mem = TradeMemory(shrink_k=1.0)
+    t0 = datetime(2026, 6, 26, 10, 0)
+    # Record several winning ES longs and losing ES shorts.
+    for _ in range(6):
+        mem.record(Trade("ES", Side.LONG, 1, 5000, 5020, t0, t0, pnl=100, r_multiple=2.0, tag="80%"), persist=False)
+        mem.record(Trade("ES", Side.SHORT, 1, 5000, 4980, t0, t0, pnl=-50, r_multiple=-1.0, tag="80%"), persist=False)
+    long_edge = mem.edge("ES", Side.LONG, t0, "80%")
+    short_edge = mem.edge("ES", Side.SHORT, t0, "80%")
+    assert long_edge > 0 and short_edge < 0 and long_edge > short_edge
+
+
+def test_adaptive_defensive_after_losses():
+    from pb_trader.adaptive import AdaptiveRisk
+    from pb_trader.models import Trade
+    a = AdaptiveRisk()
+    t0 = datetime(2026, 6, 26, 10, 0)
+    assert a.risk_multiplier() == 1.0
+    for _ in range(3):
+        a.record(Trade("ES", Side.LONG, 1, 5000, 4990, t0, t0, pnl=-20, r_multiple=-1.0), equity=900)
+    assert a.risk_multiplier() < 1.0     # cut size when cold
+    assert a.threshold_bump() > 0        # raise the bar when cold
+
+
+def test_brain_vetoes_losing_setup_type():
+    from pb_trader.brain import TradingBrain
+    from pb_trader.memory import TradeMemory
+    from pb_trader.models import Trade
+    mem = TradeMemory(shrink_k=1.0)
+    t0 = datetime(2026, 6, 26, 10, 0)
+    for _ in range(10):   # make ES shorts strongly negative in memory
+        mem.record(Trade("ES", Side.SHORT, 1, 5000, 4980, t0, t0, pnl=-80, r_multiple=-2.0, tag="80%"), persist=False)
+    brain = TradingBrain(base_threshold=0.75, memory=mem)
+    dec = brain.decide(_setup("ES", Side.SHORT, 0.80, hour=10), equity=1000)
+    assert dec.take is False     # memory vetoes a setup type that keeps losing
+    # A genuinely fresh setup (different session + confidence bucket) is allowed.
+    fresh = brain.decide(_setup("NQ", Side.LONG, 0.90, hour=14), equity=1000)
+    assert fresh.take is True
+
+
 def test_goals_milestones():
     from pb_trader import goals
     assert goals.status(1_000).next_milestone == 10_000

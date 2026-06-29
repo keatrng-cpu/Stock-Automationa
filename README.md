@@ -112,6 +112,10 @@ You should see trades, an equity curve summary, win rate, expectancy, and max dr
 | `pb_trader/report.py` | PB Elite morning/afternoon session report |
 | `pb_trader/goals.py` | $1k→$10k→$50k→$100k milestone tracking |
 | `pb_trader/strategy/liquidity_draw.py` | Draw on Liquidity + IRL/ERL + std-dev projections |
+| `pb_trader/brain.py` | Executive brain — fuses news + adaptive + memory into decisions |
+| `pb_trader/memory.py` | Trade memory — learns which setup features win for you |
+| `pb_trader/adaptive.py` | Adaptive risk — cuts size / raises the bar after losing streaks |
+| `pb_trader/news.py` | Economic calendar — blackout/caution reactions to news |
 | `pb_trader/live.py` | Paper/live trading loop + CLI |
 | `pb_trader/journal.py` | Trade journal (JSONL) |
 | `tests/` | Unit tests for the strategy primitives |
