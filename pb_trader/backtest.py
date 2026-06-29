@@ -41,9 +41,11 @@ def load_series(symbols, source_name="synthetic", bars=5000, start=None, end=Non
 
 def run_backtest(symbols: list[str], source_name: str = "synthetic",
                  bars: int = 5000, start=None, end=None, timeframe="1m",
-                 use_micros: bool = False, verbose: bool = True,
+                 use_micros: bool | None = None, verbose: bool = True,
                  model_kwargs: dict | None = None, series: dict | None = None,
                  equity_csv: str | None = None) -> BacktestResult:
+    if use_micros is None:
+        use_micros = settings.use_micros
     if series is None:
         series = load_series(symbols, source_name, bars, start, end, timeframe)
     symbols = list(series.keys())
@@ -51,6 +53,7 @@ def run_backtest(symbols: list[str], source_name: str = "synthetic",
 
     mk = model_kwargs or {}
     threshold = mk.pop("confluence_threshold", settings.confluence_threshold)
+    mk.setdefault("tp_max_r", settings.tp_max_r)
     models = {s: PBModel(s, threshold, **mk) for s in symbols}
     broker = PaperBroker(settings.account_equity, settings.slippage_ticks)
     setups_this_session = 0
@@ -79,7 +82,7 @@ def run_backtest(symbols: list[str], source_name: str = "synthetic",
                 if smt.diverging and smt.superior and smt.superior != s:
                     continue
 
-            ok, _ = validate_setup(setup)
+            ok, _ = validate_setup(setup, settings.min_rr)
             if not ok:
                 continue
             sized = position_size(setup, broker.equity, settings.risk_pct, use_micros)
@@ -118,6 +121,11 @@ def _print_report(r: BacktestResult) -> None:
     print("\n" + "=" * 56)
     print("  PB MECHANICAL MODEL 2.0 — BACKTEST REPORT")
     print("=" * 56)
+    if settings.risk_is_aggressive:
+        print(f"  \033[91m⚠ RISK {settings.risk_pct:.0%}/trade — aggressive. A normal 5-8 "
+              f"loss streak\033[0m")
+        print(f"  \033[91m  can cut this account ~40-60%. Reduce PB_RISK_PCT to de-risk.\033[0m")
+        print("-" * 56)
     print(f"  Start equity      : ${r.start_equity:,.2f}")
     print(f"  End equity        : ${r.end_equity:,.2f}")
     print(f"  Net P&L           : ${r.end_equity - r.start_equity:,.2f}")
@@ -145,7 +153,8 @@ def main() -> None:
     p.add_argument("--start", default=None)
     p.add_argument("--end", default=None)
     p.add_argument("--timeframe", default="1m")
-    p.add_argument("--micros", action="store_true", help="size in micro contracts")
+    p.add_argument("--micros", action="store_true", default=None,
+                   help="force micro contracts (default: per PB_USE_MICROS / config)")
     p.add_argument("--equity-csv", default=None, help="write the equity curve to CSV")
     args = p.parse_args()
     run_backtest(args.symbols, args.source, args.bars, args.start, args.end,

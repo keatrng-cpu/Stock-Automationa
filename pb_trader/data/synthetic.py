@@ -22,7 +22,10 @@ class SyntheticSource:
         self.tf_minutes = tf_minutes
 
     def _gen(self, symbol: str, n: int) -> list[Bar]:
-        rnd = random.Random(self.seed + hash(symbol) % 1000)
+        # Stable per-symbol offset — `hash()` is salted per process, so use a
+        # deterministic hash to keep synthetic data reproducible across runs.
+        sym_offset = sum(ord(c) for c in symbol)
+        rnd = random.Random(self.seed + sym_offset)
         price = _START_PRICE.get(symbol, 5000.0)
         t = datetime(2026, 6, 26, 0, 0)
         vol_unit = price * 0.0004

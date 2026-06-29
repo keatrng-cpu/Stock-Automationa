@@ -189,5 +189,26 @@ def test_optimizer_runs_and_ranks():
 def test_validate_setup_min_rr():
     good = Setup("ES", Side.LONG, 5000, 4990, [5020], datetime(2026, 6, 26), 0.8)
     bad = Setup("ES", Side.LONG, 5000, 4990, [5005], datetime(2026, 6, 26), 0.8)
-    assert validate_setup(good)[0] is True
-    assert validate_setup(bad)[0] is False
+    assert validate_setup(good)[0] is True       # 1:2 ok
+    assert validate_setup(bad, min_rr=1.0)[0] is False  # 1:0.5 rejected
+
+
+def test_one_to_one_rr_allowed():
+    # Per the account-growth plan we accept down to 1:1.
+    one_r = Setup("ES", Side.LONG, 5000, 4990, [5010], datetime(2026, 6, 26), 0.8)
+    assert one_r.rr() == 1.0
+    assert validate_setup(one_r, min_rr=1.0)[0] is True
+
+
+def test_aggressive_risk_flag():
+    from pb_trader.config import Settings
+    assert Settings(risk_pct=0.10).risk_is_aggressive is True
+    assert Settings(risk_pct=0.005).risk_is_aggressive is False
+
+
+def test_risk_ceiling_caps_size():
+    # Even if env asked for 50%, sizing must clamp to the 5% ceiling.
+    s = Setup("MES", Side.LONG, 5000, 4990, [5030], datetime(2026, 6, 26), 0.8)
+    sized = position_size(s, equity=1_000, risk_pct=0.50)
+    # 5% of $1000 = $50 budget; MES 10pt stop = $50/contract -> 1 contract, not 10.
+    assert sized.qty == 1

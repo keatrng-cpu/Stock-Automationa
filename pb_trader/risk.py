@@ -51,7 +51,7 @@ def position_size(setup: Setup, equity: float, risk_pct: float,
     return SizedOrder(symbol, max(qty, 0), risk_dollars, stop_points, point_value, note)
 
 
-def validate_setup(setup: Setup, min_rr: float = 2.0) -> tuple[bool, str]:
+def validate_setup(setup: Setup, min_rr: float = 1.0) -> tuple[bool, str]:
     """Reject setups that violate non-negotiable rules before they reach execution."""
     if setup.risk_points <= 0:
         return False, "non-positive risk distance"

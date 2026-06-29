@@ -38,19 +38,30 @@ def _i(name: str, default: int) -> int:
 
 
 # Hard ceiling on risk per trade — code refuses to exceed this regardless of env.
-MAX_RISK_PCT_CEILING = 0.01  # 1.0%
+# Aggressive-but-survivable growth plan: 2% default, 5% fat-finger ceiling.
+MAX_RISK_PCT_CEILING = 0.05  # 5%
+# Above this, the engine prints a loud risk warning every run.
+RISK_WARN_THRESHOLD = 0.02   # 2%
 
 
 @dataclass
 class Settings:
     mode: str = os.environ.get("PB_MODE", "paper")
-    account_equity: float = _f("PB_ACCOUNT_EQUITY", 10_000.0)
-    risk_pct: float = min(_f("PB_RISK_PCT", 0.005), MAX_RISK_PCT_CEILING)
-    max_setups_per_session: int = _i("PB_MAX_SETUPS_PER_SESSION", 1)
+    account_equity: float = _f("PB_ACCOUNT_EQUITY", 1_000.0)        # growth plan starts at $1k
+    risk_pct: float = min(_f("PB_RISK_PCT", 0.02), MAX_RISK_PCT_CEILING)  # 2% per trade (compounding)
+    max_setups_per_session: int = _i("PB_MAX_SETUPS_PER_SESSION", 2)      # 2 trades/day max
+    use_micros: bool = os.environ.get("PB_USE_MICROS", "true").lower() != "false"
+    # Reward:risk band for targets (1:1 .. 1:3).
+    min_rr: float = _f("PB_MIN_RR", 1.0)
+    tp_max_r: float = _f("PB_TP_MAX_R", 3.0)
     # A+ gate: never take a setup below 75% confluence.
     confluence_threshold: float = max(_f("PB_CONFLUENCE_THRESHOLD", 0.75), 0.75)
     # Realistic cost model: per-side slippage in ticks (commission is per-contract in CONTRACTS).
     slippage_ticks: float = _f("PB_SLIPPAGE_TICKS", 1.0)
+
+    @property
+    def risk_is_aggressive(self) -> bool:
+        return self.risk_pct > RISK_WARN_THRESHOLD
 
     # Databento
     databento_api_key: str = os.environ.get("DATABENTO_API_KEY", "")

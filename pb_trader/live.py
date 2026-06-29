@@ -23,8 +23,13 @@ from .strategy.smt import smt_divergence
 
 
 def run_live(symbols: list[str], mode: str = "paper", source_name: str = "synthetic",
-             bars: int = 3000, use_micros: bool = False) -> None:
+             bars: int = 3000, use_micros: bool | None = None) -> None:
     print(f"PB Trader live loop — mode={mode}, source={source_name}, symbols={symbols}")
+    if use_micros is None:
+        use_micros = settings.use_micros
+    if settings.risk_is_aggressive:
+        print(f"  \033[91m⚠ RISK {settings.risk_pct:.0%}/trade is aggressive — a routine "
+              f"5-8 loss streak can halve the account. (PB_RISK_PCT)\033[0m")
     if mode == "live" and not settings.live_enabled:
         print("  [!] PB_MODE=live but creds incomplete — refusing live. Running paper.")
         mode = "paper"
@@ -35,7 +40,8 @@ def run_live(symbols: list[str], mode: str = "paper", source_name: str = "synthe
                         **({"equity": settings.account_equity,
                             "slippage_ticks": settings.slippage_ticks}
                            if mode == "paper" else {}))
-    models = {s: PBModel(s, settings.confluence_threshold) for s in symbols}
+    models = {s: PBModel(s, settings.confluence_threshold, tp_max_r=settings.tp_max_r)
+              for s in symbols}
     history: dict[str, list] = {s: [] for s in symbols}
     setups_today = 0
     last_day = None
@@ -64,7 +70,7 @@ def run_live(symbols: list[str], mode: str = "paper", source_name: str = "synthe
             if smt.diverging and smt.superior and smt.superior != bar.symbol:
                 continue
 
-        ok, why = validate_setup(setup)
+        ok, why = validate_setup(setup, settings.min_rr)
         if not ok:
             continue
         sized = position_size(setup, broker.equity, settings.risk_pct, use_micros)
@@ -104,7 +110,8 @@ def main() -> None:
     p.add_argument("--source", default="synthetic",
                    choices=["synthetic", "csv", "databento", "tradovate"])
     p.add_argument("--bars", type=int, default=3000)
-    p.add_argument("--micros", action="store_true")
+    p.add_argument("--micros", action="store_true", default=None,
+                   help="force micro contracts (default: per PB_USE_MICROS / config)")
     args = p.parse_args()
     run_live(args.symbols, args.mode, args.source, args.bars, args.micros)
 

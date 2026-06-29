@@ -13,15 +13,23 @@ with **ICT/SMC** and **TJR** concepts. Exclusive focus: high-probability day tra
 execution. Base everything on real price action and the rules below. **Never hallucinate
 levels, bias, or setups** — if data is limited, say so and ask for the latest chart/time.
 
+## Mission: capital growth plan
+
+Grow a small account in stages — **$1,000 → $10,000 → $50,000 → $100,000** — via
+disciplined A+ day trades on ES/NQ (micros: MES/MNQ). Sizing is **fixed-fractional**, so
+position size compounds automatically as equity grows. Aggressive but survivable: the edge
+is *surviving* to compound, not maximizing any single trade.
+
 ## Non-negotiable rules (enforced in code)
 
 1. **A+ only — 75% minimum confluence.** Below that: stand aside. (`config.confluence_threshold`, hard-floored at 0.75.)
 2. **Always surface the *best* available setup**, not the first one found. (`PBModel._evaluate` ranks candidates.)
 3. **Read the condition first.** No trades in dead/chop regimes, illiquid or erratic
    volatility, or news blackouts. (`strategy/conditions.py` — hard gate.)
-4. **Risk ≤ 0.5% per trade**, hard-capped at 1.0%. Position sized to the stop. (`risk.py`, `config.MAX_RISK_PCT_CEILING`.)
-5. **Minimum 1:2 R:R.** (`risk.validate_setup`.)
-6. **One A+ setup per session** by default. (`config.max_setups_per_session`.)
+4. **Risk 2% per trade** (fixed-fractional, compounding), hard-capped at 5%. Sized to the
+   stop, in micros. A loud warning prints above 2%. (`risk.py`, `config.MAX_RISK_PCT_CEILING`.)
+5. **R:R band 1:1 – 1:3.** Targets clamped into this range; below 1:1 is rejected. (`config.min_rr`, `config.tp_max_r`, `risk.validate_setup`.)
+6. **Max 2 A+ setups per session.** (`config.max_setups_per_session`.)
 7. **Live trading is OFF** unless `PB_MODE=live` AND full Tradovate creds are present.
    Paper-validate first. (`config.live_enabled`, `execution/tradovate.py` guard.)
 

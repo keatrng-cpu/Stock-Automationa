@@ -22,7 +22,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from ..models import Bar, Direction, Setup, Side
+from ..models import CONTRACTS, Bar, Direction, Setup, Side
 from .conditions import MarketConditions, NewsCalendar, assess_conditions
 from .fib import in_ote
 from .fvg import active_ifvgs, new_fvg, update_fvg_states
@@ -68,7 +68,10 @@ class PBModel:
                  htf2_minutes: int = 60,
                  require_htf_alignment: bool = True,
                  ote_low: float = 0.62,
-                 ote_high: float = 0.79):
+                 ote_high: float = 0.79,
+                 tp_min_r: float = 1.0,
+                 tp_max_r: float = 3.0,
+                 min_stop_ticks: int = 8):
         self.symbol = symbol
         self.threshold = confluence_threshold
         self.swing_k = swing_k
@@ -82,6 +85,10 @@ class PBModel:
         self.require_htf_alignment = require_htf_alignment
         self.ote_low = ote_low
         self.ote_high = ote_high
+        self.tp_min_r = tp_min_r
+        self.tp_max_r = tp_max_r
+        self.min_stop_ticks = min_stop_ticks
+        self.tick = CONTRACTS.get(symbol, {}).get("tick", 0.25)
         self.bars: list[Bar] = []
         self.struct = StructureState()
         self.po3 = DailyPO3()
@@ -299,24 +306,31 @@ class PBModel:
 
     def _build_setup(self, bar: Bar, f, trend: Direction, score: float,
                      reasons: list[str]) -> Setup:
+        min_stop = self.min_stop_ticks * self.tick
         if trend is Direction.BULL:
             side = Side.LONG
             entry = f.top                       # retest of inverted gap as support
             stop = min(f.bottom, bar.low) - 0.25
+            stop = min(stop, entry - min_stop)  # enforce a minimum stop distance
+            risk = entry - stop
             tgt_pool = next_liquidity(self.pools, entry, "up")
-            t1 = entry + 2 * (entry - stop)
-            targets = [tgt_pool.price] if tgt_pool else [t1]
-            if not targets or targets[0] <= entry:
-                targets = [t1]
+            raw = tgt_pool.price if (tgt_pool and tgt_pool.price > entry) \
+                else entry + 2 * risk
+            reward_r = (raw - entry) / risk if risk > 0 else self.tp_min_r
+            reward_r = max(self.tp_min_r, min(self.tp_max_r, reward_r))  # clamp to 1:1..1:max
+            targets = [entry + reward_r * risk]
         else:
             side = Side.SHORT
             entry = f.bottom
             stop = max(f.top, bar.high) + 0.25
+            stop = max(stop, entry + min_stop)  # enforce a minimum stop distance
+            risk = stop - entry
             tgt_pool = next_liquidity(self.pools, entry, "down")
-            t1 = entry - 2 * (stop - entry)
-            targets = [tgt_pool.price] if tgt_pool else [t1]
-            if not targets or targets[0] >= entry:
-                targets = [t1]
+            raw = tgt_pool.price if (tgt_pool and tgt_pool.price < entry) \
+                else entry - 2 * risk
+            reward_r = (entry - raw) / risk if risk > 0 else self.tp_min_r
+            reward_r = max(self.tp_min_r, min(self.tp_max_r, reward_r))
+            targets = [entry - reward_r * risk]
 
         return Setup(
             symbol=self.symbol, side=side, entry=round(entry, 2),

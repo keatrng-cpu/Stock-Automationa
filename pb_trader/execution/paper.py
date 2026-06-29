@@ -11,6 +11,14 @@ from __future__ import annotations
 
 from ..models import CONTRACTS, Bar, Order, OrderType, Position, Side, Trade
 
+# Micros track the same price as their full-size underlying, so positions on a micro
+# contract must be filled/exited against the underlying's bars.
+_UNDERLYING = {"MES": "ES", "MNQ": "NQ", "ES": "ES", "NQ": "NQ"}
+
+
+def _price_key(symbol: str) -> str:
+    return _UNDERLYING.get(symbol, symbol)
+
 
 class PaperBroker:
     def __init__(self, equity: float = 10_000.0, slippage_ticks: float = 1.0):
@@ -57,7 +65,7 @@ class PaperBroker:
         closed: list[Trade] = []
         still_open: list[Position] = []
         for pos in self.positions:
-            if pos.symbol != bar.symbol:
+            if _price_key(pos.symbol) != _price_key(bar.symbol):
                 still_open.append(pos)
                 continue
             exit_price, reason = self._check_exit(pos, bar)
