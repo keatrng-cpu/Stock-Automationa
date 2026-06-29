@@ -67,6 +67,10 @@ def run_backtest(symbols: list[str], source_name: str = "synthetic",
                          scale_frac=settings.scale_frac)
     setups_this_session = 0
     last_session = None
+    # Pending LIMIT orders: a signal at bar i places a limit at setup.entry that only
+    # fills if price RETESTS it on a LATER bar (no look-ahead), expiring after a window.
+    pending: dict = {s: [] for s in symbols}
+    RETEST_WINDOW = 20
 
     for i in range(n):
         for s in symbols:
@@ -80,6 +84,18 @@ def run_backtest(symbols: list[str], source_name: str = "synthetic",
                 if brain:
                     brain.learn(trade, broker.equity)
 
+            # Fill any pending limit whose price the CURRENT bar trades through (the
+            # retest happens after the signal bar — realistic, no look-ahead).
+            still: list = []
+            for p in pending[s]:
+                if i > p["expiry"]:
+                    continue                    # expired unfilled
+                if bar.low <= p["order"].price <= bar.high:
+                    broker.submit_at(p["order"], p["order"].price, bar.ts)
+                else:
+                    still.append(p)
+            pending[s] = still
+
             setup = models[s].on_bar(bar)
             if setup is None or setups_this_session >= settings.max_setups_per_session:
                 continue
@@ -87,8 +103,6 @@ def run_backtest(symbols: list[str], source_name: str = "synthetic",
 
             other = [o for o in symbols if o != s]
             if other:
-                # Bounded recent window — SMT only compares recent swings, so slicing
-                # the full history each bar would be needless O(n^2).
                 lo = max(0, i - 60)
                 smt = smt_divergence(series[s][lo:i + 1], series[other[0]][lo:i + 1])
                 if smt.diverging and smt.superior and smt.superior != s:
@@ -101,7 +115,6 @@ def run_backtest(symbols: list[str], source_name: str = "synthetic",
             if sized.qty < 1:
                 continue
 
-            # Executive brain: news/adaptive/memory judgment on top of the A+ setup.
             qty = sized.qty
             if brain:
                 dec = brain.decide(setup, broker.equity)
@@ -112,10 +125,10 @@ def run_backtest(symbols: list[str], source_name: str = "synthetic",
                     continue
 
             order = Order(symbol=sized.symbol, side=setup.side, qty=qty,
-                          type=OrderType.MARKET, price=setup.entry, stop=setup.stop,
+                          type=OrderType.LIMIT, price=setup.entry, stop=setup.stop,
                           targets=setup.targets, tag=f"{setup.confluence:.0%}",
                           features=setup.features)
-            broker.submit_at(order, setup.entry, bar.ts)
+            pending[s].append({"order": order, "expiry": i + RETEST_WINDOW})
             setups_this_session += 1
 
     metrics = compute_metrics(broker.trades, broker.start_equity)
