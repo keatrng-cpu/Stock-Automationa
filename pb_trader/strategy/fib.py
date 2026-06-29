@@ -26,25 +26,27 @@ def dealing_range(bars: list[Bar], swing_k: int = 2) -> Optional[tuple[float, fl
     return last_low, last_high
 
 
-def in_ote(entry: float, low: float, high: float, side: Side) -> bool:
-    """Is `entry` inside the 0.62–0.79 retracement of the leg [low, high]?"""
+def in_ote(entry: float, low: float, high: float, side: Side,
+           ote_low: float = OTE_LOW, ote_high: float = OTE_HIGH) -> bool:
+    """Is `entry` inside the [ote_low, ote_high] retracement of the leg [low, high]?"""
     rng = high - low
     if rng <= 0:
         return False
     if side is Side.LONG:
         # Retracing down from the high: deeper retrace = lower price.
-        hi_z = high - OTE_LOW * rng
-        lo_z = high - OTE_HIGH * rng
+        hi_z = high - ote_low * rng
+        lo_z = high - ote_high * rng
         return lo_z <= entry <= hi_z
     else:
         # Retracing up from the low.
-        lo_z = low + OTE_LOW * rng
-        hi_z = low + OTE_HIGH * rng
+        lo_z = low + ote_low * rng
+        hi_z = low + ote_high * rng
         return lo_z <= entry <= hi_z
 
 
-def ote_check(bars: list[Bar], entry: float, side: Side, swing_k: int = 2) -> bool:
+def ote_check(bars: list[Bar], entry: float, side: Side, swing_k: int = 2,
+              ote_low: float = OTE_LOW, ote_high: float = OTE_HIGH) -> bool:
     rng = dealing_range(bars, swing_k)
     if rng is None:
         return False
-    return in_ote(entry, rng[0], rng[1], side)
+    return in_ote(entry, rng[0], rng[1], side, ote_low, ote_high)

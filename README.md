@@ -41,6 +41,10 @@ python -m venv .venv && source .venv/bin/activate
 pip install -e .
 # Run a backtest on built-in synthetic data — proves the full pipeline runs:
 python -m pb_trader.backtest --symbols ES NQ --bars 5000
+# ...with an equity-curve CSV + full analytics (profit factor, Sharpe, breakdowns):
+python -m pb_trader.backtest --bars 8000 --equity-csv journal/equity.csv
+# Tune parameters with train/test robustness (finds settings that hold out-of-sample):
+python -m pb_trader.optimize --bars 12000 --metric expectancy_r
 # Run the paper-trading loop on synthetic data:
 python -m pb_trader.live --mode paper
 ```
@@ -88,6 +92,8 @@ You should see trades, an equity curve summary, win rate, expectancy, and max dr
 | `pb_trader/risk.py` | Position sizing + risk caps |
 | `pb_trader/execution/` | Brokers: paper sim + Tradovate adapter |
 | `pb_trader/backtest.py` | Event-driven backtester + CLI |
+| `pb_trader/analytics.py` | Metrics (profit factor, Sharpe, DD), breakdowns, ASCII equity curve |
+| `pb_trader/optimize.py` | Parameter tuning harness with train/test robustness |
 | `pb_trader/live.py` | Paper/live trading loop + CLI |
 | `pb_trader/journal.py` | Trade journal (JSONL) |
 | `tests/` | Unit tests for the strategy primitives |

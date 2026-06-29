@@ -25,27 +25,33 @@ from typing import Optional
 from ..models import Bar, Direction, Setup, Side
 from .conditions import MarketConditions, NewsCalendar, assess_conditions
 from .fib import ote_check
-from .fvg import active_ifvgs, detect_fvgs, update_fvg_states
+from .fvg import active_ifvgs, new_fvg, update_fvg_states
 from .htf import htf_bias
 from .liquidity import build_pools, detect_sweep, next_liquidity
-from .order_blocks import order_blocks_from_fvgs, retesting_block, update_block_states
+from .order_blocks import (flip_broken_blocks, order_block_at_formation,
+                           retesting_block, retesting_breaker, update_block_states)
 from .structure import StructureState, find_swings, premium_discount
 from .tjr import DailyPO3, current_killzone, detect_mss
+from .voids import nearest_unfilled_void, new_void, update_void_states
 
-# SMC-grade confluence stack (sums to 1.0). Top-down: HTF bias is weighted heavily
-# and also gates entries; entry-zone quality stacks iFVG + order block + OTE.
+# SMC-grade confluence stack (sums to 1.0). Top-down: the primary HTF bias is weighted
+# heavily and also gates entries; entry-zone quality stacks iFVG + order block +
+# breaker + OTE; a second HTF and liquidity void add higher-order confluence.
 WEIGHTS = {
-    "structure": 0.15,    # LTF BOS/CHOCH aligned
-    "htf_bias": 0.15,     # higher-timeframe bias aligned (top-down)
-    "pd": 0.08,           # premium/discount of the dealing range
-    "sweep": 0.15,        # liquidity raid
-    "ifvg": 0.15,         # inverted FVG retest
+    "structure": 0.13,    # LTF BOS/CHOCH aligned
+    "htf_bias": 0.13,     # primary higher-timeframe bias aligned (top-down)
+    "htf2_bias": 0.07,    # second (slower) HTF agrees
+    "pd": 0.06,           # premium/discount of the dealing range
+    "sweep": 0.13,        # liquidity raid
+    "ifvg": 0.13,         # inverted FVG retest
     "order_block": 0.07,  # fresh order block retest
-    "ote": 0.07,          # optimal trade entry (0.62-0.79 fib)
-    "displacement": 0.06,
-    "mss": 0.06,          # TJR market structure shift
-    "killzone": 0.03,
-    "daily_bias": 0.03,   # TJR PO3 daily bias
+    "breaker": 0.05,      # breaker block retest
+    "ote": 0.07,          # optimal trade entry (fib retracement)
+    "displacement": 0.05,
+    "mss": 0.05,          # TJR market structure shift
+    "void": 0.02,         # unfilled liquidity void in trade direction
+    "killzone": 0.02,
+    "daily_bias": 0.02,   # TJR PO3 daily bias
 }
 
 
@@ -58,7 +64,10 @@ class PBModel:
                  news: Optional[NewsCalendar] = None,
                  max_history: int = 800,
                  htf_minutes: int = 15,
-                 require_htf_alignment: bool = True):
+                 htf2_minutes: int = 60,
+                 require_htf_alignment: bool = True,
+                 ote_low: float = 0.62,
+                 ote_high: float = 0.79):
         self.symbol = symbol
         self.threshold = confluence_threshold
         self.swing_k = swing_k
@@ -67,13 +76,19 @@ class PBModel:
         self.require_killzone = require_killzone
         self.news = news or NewsCalendar()
         self.htf_minutes = htf_minutes
+        self.htf2_minutes = htf2_minutes
         self.require_htf_alignment = require_htf_alignment
+        self.ote_low = ote_low
+        self.ote_high = ote_high
         self.bars: list[Bar] = []
         self.struct = StructureState()
         self.po3 = DailyPO3()
         self.fvgs: list = []
         self.blocks: list = []
+        self.breakers: list = []
+        self.voids: list = []
         self.htf_trend: Optional[Direction] = None
+        self.htf2_trend: Optional[Direction] = None
         self.pools: list = []
         self.conditions: Optional[MarketConditions] = None
         self._recent_sweep = None
@@ -109,17 +124,36 @@ class PBModel:
         if self.require_killzone and current_killzone(bar.ts) is None:
             return None
 
-        # ---- Top-down: higher-timeframe bias (core SMC) ----
+        # ---- Top-down: higher-timeframe bias (core SMC), two timeframes ----
         self.htf_trend = htf_bias(self.bars, self.htf_minutes, self.swing_k)
+        self.htf2_trend = htf_bias(self.bars, self.htf2_minutes, self.swing_k)
 
-        # Refresh structure, FVGs, order blocks, liquidity pools.
+        # ---- Incremental SMC objects: detect what FORMS on this bar, then update
+        # persisted state once. O(1) amortized per bar (was O(n) recompute = O(n^2)). ----
+        nf = new_fvg(self.bars)
+        if nf is not None:
+            self.fvgs.append(nf)
+            ob = order_block_at_formation(self.bars, nf.direction)
+            if ob is not None:
+                self.blocks.append(ob)
+        nv = new_void(self.bars)
+        if nv is not None:
+            self.voids.append(nv)
+
+        update_fvg_states(self.fvgs, bar)
+        update_block_states(self.blocks, bar)
+        flip_broken_blocks(self.blocks, self.breakers, bar)
+        update_void_states(self.voids, bar)
+
+        # Bound the object lists (older mitigated/filled levels stop mattering).
+        self.fvgs = self.fvgs[-60:]
+        self.blocks = self.blocks[-40:]
+        self.breakers = self.breakers[-40:]
+        self.voids = self.voids[-40:]
+
+        # Structure + liquidity pools from swings over the (capped) history.
         swings = find_swings(self.bars, self.swing_k)
         self.struct.update(swings, bar, i)
-        self.fvgs = detect_fvgs(self.bars)
-        for f in self.fvgs:
-            update_fvg_states([f], bar)
-        self.blocks = order_blocks_from_fvgs(self.bars, self.fvgs)
-        update_block_states(self.blocks, bar)
         self.pools = build_pools(swings)
 
         sweep = detect_sweep(self.pools, bar)
@@ -175,22 +209,36 @@ class PBModel:
             score += WEIGHTS["ifvg"]
             reasons.append(f"iFVG retest [{f.bottom:.2f}, {f.top:.2f}]")
 
-            # HTF bias alignment (top-down confluence).
+            # HTF bias alignment (top-down confluence), primary + secondary timeframe.
             if self.htf_trend is not None and self.htf_trend == trend:
                 score += WEIGHTS["htf_bias"]
                 reasons.append(f"HTF({self.htf_minutes}m) bias {trend.value} aligned")
+            if self.htf2_trend is not None and self.htf2_trend == trend:
+                score += WEIGHTS["htf2_bias"]
+                reasons.append(f"HTF({self.htf2_minutes}m) bias {trend.value} aligned")
 
             # Order block: entry coincides with a fresh, aligned demand/supply block.
             if retesting_block(self.blocks, trend, bar):
                 score += WEIGHTS["order_block"]
                 reasons.append("fresh order block retest")
 
-            # OTE: entry sits in the 0.62-0.79 retracement of the leg.
+            # Breaker block: failed order block flipped to support/resistance.
+            if retesting_breaker(self.breakers, trend, bar):
+                score += WEIGHTS["breaker"]
+                reasons.append("breaker block retest")
+
+            # OTE: entry sits in the configured fib retracement of the leg.
             side_for_ote = Side.LONG if trend is Direction.BULL else Side.SHORT
             entry_price = f.top if trend is Direction.BULL else f.bottom
-            if ote_check(self.bars, entry_price, side_for_ote, self.swing_k):
+            if ote_check(self.bars, entry_price, side_for_ote, self.swing_k,
+                         self.ote_low, self.ote_high):
                 score += WEIGHTS["ote"]
-                reasons.append("OTE zone (0.62-0.79 fib)")
+                reasons.append(f"OTE zone ({self.ote_low:.2f}-{self.ote_high:.2f} fib)")
+
+            # Liquidity void: an unfilled imbalance ahead in the trade direction.
+            if nearest_unfilled_void(self.voids, entry_price, trend) is not None:
+                score += WEIGHTS["void"]
+                reasons.append("unfilled liquidity void ahead")
 
             dq = self._displacement()
             score += WEIGHTS["displacement"] * dq

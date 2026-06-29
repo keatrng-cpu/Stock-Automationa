@@ -72,20 +72,34 @@ Both add confluence when the entry coincides with them (they often stack with th
 
 | Component | Weight |
 |-----------|-------:|
-| LTF structure alignment (BOS/CHOCH) | 0.15 |
-| **HTF bias alignment (top-down)** | 0.15 |
-| Premium/discount of dealing range | 0.08 |
-| Liquidity sweep present | 0.15 |
-| iFVG inversion + retest | 0.15 |
+| LTF structure alignment (BOS/CHOCH) | 0.13 |
+| **HTF bias alignment (primary, top-down)** | 0.13 |
+| **HTF bias alignment (secondary TF)** | 0.07 |
+| Premium/discount of dealing range | 0.06 |
+| Liquidity sweep present | 0.13 |
+| iFVG inversion + retest | 0.13 |
 | **Order block retest** | 0.07 |
-| **OTE (0.62–0.79 fib)** | 0.07 |
-| Displacement quality | 0.06 |
-| TJR MSS | 0.06 |
-| TJR killzone | 0.03 |
-| TJR PO3 daily bias | 0.03 |
+| **Breaker block retest** | 0.05 |
+| **OTE (configurable fib retracement)** | 0.07 |
+| Displacement quality | 0.05 |
+| TJR MSS | 0.05 |
+| **Unfilled liquidity void ahead** | 0.02 |
+| TJR killzone | 0.02 |
+| TJR PO3 daily bias | 0.02 |
 
 Sum ∈ [0,1]. **≥ 0.75 ⇒ A+ candidate.** The highest-scoring candidate is chosen, and
 only after the HTF-alignment + conditions + news gates pass.
+
+## 9. Analytics & tuning
+`analytics.py`, `optimize.py`
+
+- **Analytics**: profit factor, per-trade Sharpe, max drawdown, expectancy, avg win/loss,
+  ASCII equity curve, and breakdowns by side and confluence bucket. `--equity-csv` exports
+  the curve for external charting.
+- **Optimizer**: grid-searches `htf_minutes`, `swing_k`, OTE thresholds, and the confluence
+  threshold, but ranks by the **worse of a train/test split** so it favors robust settings
+  over in-sample overfits. SMC objects are detected **incrementally** (O(1)/bar), keeping
+  backtests and the optimizer fast.
 
 ## 8. Risk & execution
 `risk.py`, `execution/`

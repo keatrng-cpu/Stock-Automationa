@@ -107,6 +107,41 @@ class OrderBlock:
     ts: datetime
     index: int
     mitigated: bool = False
+    broken: bool = False       # price closed through it -> flips to a breaker
+
+    @property
+    def mid(self) -> float:
+        return (self.top + self.bottom) / 2.0
+
+    def contains(self, price: float) -> bool:
+        return self.bottom <= price <= self.top
+
+
+@dataclass
+class BreakerBlock:
+    """A failed order block: once an order block is violated (price closes through it),
+    the broken zone flips polarity and acts as support/resistance on the retest."""
+    direction: Direction       # the NEW polarity (BULL = now support)
+    top: float
+    bottom: float
+    ts: datetime
+    index: int
+    tested: bool = False
+
+    def contains(self, price: float) -> bool:
+        return self.bottom <= price <= self.top
+
+
+@dataclass
+class LiquidityVoid:
+    """A large single-direction imbalance (oversized displacement) that price tends to
+    revisit to rebalance. Wider/stronger than a regular FVG."""
+    direction: Direction
+    top: float
+    bottom: float
+    ts: datetime
+    index: int
+    filled: bool = False
 
     @property
     def mid(self) -> float:

@@ -8,7 +8,7 @@ that creates a gap is exactly what validates the block).
 """
 from __future__ import annotations
 
-from ..models import Bar, Direction, FVG, OrderBlock
+from ..models import Bar, BreakerBlock, Direction, FVG, OrderBlock
 
 
 def order_blocks_from_fvgs(bars: list[Bar], fvgs: list[FVG],
@@ -36,6 +36,43 @@ def order_blocks_from_fvgs(bars: list[Bar], fvgs: list[FVG],
     return blocks
 
 
+def order_block_at_formation(bars: list[Bar], direction: Direction,
+                             search: int = 5):
+    """The order block for an FVG that just completed on the latest bar.
+
+    The displacement's 3rd candle is bars[-1]; the origin is bars[-3]. Walk back from
+    there for the last opposing candle = the order block.
+    """
+    origin = len(bars) - 3
+    if origin < 0:
+        return None
+    if direction is Direction.BULL:
+        for j in range(origin, max(origin - search, -1), -1):
+            if bars[j].close < bars[j].open:
+                return OrderBlock(Direction.BULL, top=bars[j].high, bottom=bars[j].low,
+                                  ts=bars[j].ts, index=j)
+    else:
+        for j in range(origin, max(origin - search, -1), -1):
+            if bars[j].close > bars[j].open:
+                return OrderBlock(Direction.BEAR, top=bars[j].high, bottom=bars[j].low,
+                                  ts=bars[j].ts, index=j)
+    return None
+
+
+def flip_broken_blocks(blocks: list[OrderBlock], breakers: list[BreakerBlock],
+                       bar: Bar) -> None:
+    """Incremental breaker detection: a block price closes through flips polarity."""
+    for ob in blocks:
+        if ob.broken:
+            continue
+        if ob.direction is Direction.BULL and bar.close < ob.bottom:
+            ob.broken = True
+            breakers.append(BreakerBlock(Direction.BEAR, ob.top, ob.bottom, ob.ts, ob.index))
+        elif ob.direction is Direction.BEAR and bar.close > ob.top:
+            ob.broken = True
+            breakers.append(BreakerBlock(Direction.BULL, ob.top, ob.bottom, ob.ts, ob.index))
+
+
 def update_block_states(blocks: list[OrderBlock], bar: Bar) -> None:
     """Mark a block mitigated once price trades back into its zone."""
     for ob in blocks:
@@ -57,5 +94,40 @@ def retesting_block(blocks: list[OrderBlock], direction: Direction,
         if ob.direction is not direction:
             continue
         if ob.contains(bar.low) or ob.contains(bar.high) or ob.contains(bar.close):
+            return True
+    return False
+
+
+def find_breakers(blocks: list[OrderBlock], bars: list[Bar]) -> list[BreakerBlock]:
+    """Derive breaker blocks: an order block that price has *closed through* (failed)
+    flips polarity and becomes a breaker on the opposite side.
+
+    A bullish (demand) OB broken to the downside -> bearish breaker (resistance).
+    A bearish (supply) OB broken to the upside -> bullish breaker (support).
+    """
+    if not bars:
+        return []
+    breakers: list[BreakerBlock] = []
+    for ob in blocks:
+        after = bars[ob.index + 1:]
+        if not after:
+            continue
+        if ob.direction is Direction.BULL:
+            if any(b.close < ob.bottom for b in after):
+                breakers.append(BreakerBlock(Direction.BEAR, ob.top, ob.bottom,
+                                             ob.ts, ob.index))
+        else:
+            if any(b.close > ob.top for b in after):
+                breakers.append(BreakerBlock(Direction.BULL, ob.top, ob.bottom,
+                                             ob.ts, ob.index))
+    return breakers
+
+
+def retesting_breaker(breakers: list[BreakerBlock], direction: Direction,
+                      bar: Bar) -> bool:
+    for bk in breakers:
+        if bk.direction is not direction:
+            continue
+        if bk.contains(bar.low) or bk.contains(bar.high) or bk.contains(bar.close):
             return True
     return False

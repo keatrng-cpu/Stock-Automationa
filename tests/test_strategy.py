@@ -138,6 +138,54 @@ def test_costs_reduce_pnl():
     assert costed.total_commission == 4.0  # ES round-turn
 
 
+def test_analytics_metrics():
+    from pb_trader.analytics import compute_metrics
+    from pb_trader.models import Trade
+    t0 = datetime(2026, 6, 26, 9, 30)
+    trades = [
+        Trade("ES", Side.LONG, 1, 5000, 5020, t0, t0, pnl=100.0, r_multiple=2.0),
+        Trade("ES", Side.LONG, 1, 5000, 4995, t0, t0, pnl=-50.0, r_multiple=-1.0),
+        Trade("ES", Side.LONG, 1, 5000, 5010, t0, t0, pnl=50.0, r_multiple=1.0),
+    ]
+    m = compute_metrics(trades, 10_000)
+    assert m.trades == 3 and m.wins == 2
+    assert abs(m.profit_factor - (150 / 50)) < 1e-9   # gross profit 150 / loss 50
+    assert m.net_pnl == 100.0
+    assert len(m.equity_curve) == 4 and m.equity_curve[-1] == 10_100.0
+
+
+def test_breaker_block():
+    from pb_trader.models import Direction, OrderBlock
+    from pb_trader.strategy.order_blocks import find_breakers
+    bars = [_bar(i, 100, 101, 99, 100) for i in range(6)]
+    bars.append(_bar(6, 100, 100, 95, 96))   # closes below the block -> breaker
+    ob = OrderBlock(Direction.BULL, top=101, bottom=99, ts=bars[2].ts, index=2)
+    breakers = find_breakers([ob], bars)
+    assert breakers and breakers[0].direction is Direction.BEAR
+
+
+def test_liquidity_void_detection():
+    from pb_trader.strategy.voids import detect_voids
+    from pb_trader.models import Direction
+    # Calm bars then a huge bullish displacement leaving an oversized gap.
+    bars = [_bar(i, 100, 100.3, 99.7, 100) for i in range(20)]
+    bars.append(_bar(20, 100, 101, 100, 101))
+    bars.append(_bar(21, 110, 116, 109, 115))   # big gap vs bars[19].high
+    voids = detect_voids(bars, atr_n=14, mult=2.0)
+    assert any(v.direction is Direction.BULL for v in voids)
+
+
+def test_optimizer_runs_and_ranks():
+    from pb_trader.optimize import optimize
+    # Tiny grid + few bars keeps the unit test fast while exercising ranking logic.
+    best = optimize(["ES", "NQ"], bars=1500, metric="expectancy_r",
+                    min_trades=1, top=3, grid={"swing_k": [2, 3]})
+    assert isinstance(best, list) and len(best) <= 3
+    # Sorted descending by robust score.
+    scores = [r.robust_score for r in best]
+    assert scores == sorted(scores, reverse=True)
+
+
 def test_validate_setup_min_rr():
     good = Setup("ES", Side.LONG, 5000, 4990, [5020], datetime(2026, 6, 26), 0.8)
     bad = Setup("ES", Side.LONG, 5000, 4990, [5005], datetime(2026, 6, 26), 0.8)

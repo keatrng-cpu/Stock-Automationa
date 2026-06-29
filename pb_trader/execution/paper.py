@@ -64,7 +64,9 @@ class PaperBroker:
             if exit_price is None:
                 still_open.append(pos)
                 continue
-            closed.append(self._close(pos, exit_price, bar, reason))
+            trade = self._close(pos, exit_price, bar, reason)
+            self.trades.append(trade)
+            closed.append(trade)
         self.positions = still_open
         return closed
 
