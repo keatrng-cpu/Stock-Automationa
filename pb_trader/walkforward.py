@@ -19,7 +19,15 @@ from .analytics import Metrics, compute_metrics, format_report
 from .backtest import load_series, run_backtest
 from .config import settings
 from .models import Trade
-from .optimize import GRID, _objective
+from .optimize import _objective
+
+# Walk-forward runs the grid once PER FOLD, so use a coarser grid than the full
+# optimizer (folds × grid backtests adds up fast). Override via the `grid` arg.
+WF_GRID = {
+    "htf_minutes": [15, 30],
+    "swing_k": [2, 3],
+    "confluence_threshold": [0.75, 0.80],
+}
 
 
 @dataclass
@@ -84,7 +92,7 @@ def walk_forward(symbols, bars=20000, source="synthetic", folds=5, is_ratio=3,
                  metric="expectancy_r", min_trades=3, grid: dict | None = None,
                  jobs: int | None = None, start=None, end=None,
                  timeframe="1m") -> WalkForwardResult:
-    grid = grid or GRID
+    grid = grid or WF_GRID
     series = load_series(symbols, source, bars, start, end, timeframe)
     n = min(len(v) for v in series.values())
 
