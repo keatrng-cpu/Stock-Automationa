@@ -18,12 +18,15 @@ from ..models import Bar
 def atr(bars: list[Bar], n: int = 14) -> float:
     if len(bars) < 2:
         return 0.0
-    trs = []
-    for i in range(1, len(bars)):
+    # Only compute true range over the last n bars (not the whole history).
+    start = max(1, len(bars) - n)
+    total = 0.0
+    count = 0
+    for i in range(start, len(bars)):
         h, l, pc = bars[i].high, bars[i].low, bars[i - 1].close
-        trs.append(max(h - l, abs(h - pc), abs(l - pc)))
-    window = trs[-n:]
-    return sum(window) / len(window) if window else 0.0
+        total += max(h - l, abs(h - pc), abs(l - pc))
+        count += 1
+    return total / count if count else 0.0
 
 
 def efficiency_ratio(bars: list[Bar], n: int = 20) -> float:

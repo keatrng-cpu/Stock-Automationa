@@ -72,7 +72,10 @@ def run_backtest(symbols: list[str], source_name: str = "synthetic",
 
             other = [o for o in symbols if o != s]
             if other:
-                smt = smt_divergence(series[s][:i + 1], series[other[0]][:i + 1])
+                # Bounded recent window — SMT only compares recent swings, so slicing
+                # the full history each bar would be needless O(n^2).
+                lo = max(0, i - 60)
+                smt = smt_divergence(series[s][lo:i + 1], series[other[0]][lo:i + 1])
                 if smt.diverging and smt.superior and smt.superior != s:
                     continue
 

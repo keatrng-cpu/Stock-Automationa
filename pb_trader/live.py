@@ -60,7 +60,7 @@ def run_live(symbols: list[str], mode: str = "paper", source_name: str = "synthe
         # SMT instrument selection.
         other = [o for o in symbols if o != bar.symbol]
         if other and len(history[other[0]]) > 20:
-            smt = smt_divergence(history[bar.symbol], history[other[0]])
+            smt = smt_divergence(history[bar.symbol][-60:], history[other[0]][-60:])
             if smt.diverging and smt.superior and smt.superior != bar.symbol:
                 continue
 

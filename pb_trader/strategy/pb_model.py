@@ -24,7 +24,7 @@ from typing import Optional
 
 from ..models import Bar, Direction, Setup, Side
 from .conditions import MarketConditions, NewsCalendar, assess_conditions
-from .fib import ote_check
+from .fib import in_ote
 from .fvg import active_ifvgs, new_fvg, update_fvg_states
 from .htf import _bucket, htf_bias
 from .liquidity import build_pools, detect_sweep, next_liquidity
@@ -63,6 +63,7 @@ class PBModel:
                  require_killzone: bool = False,
                  news: Optional[NewsCalendar] = None,
                  max_history: int = 800,
+                 struct_window: int = 200,
                  htf_minutes: int = 15,
                  htf2_minutes: int = 60,
                  require_htf_alignment: bool = True,
@@ -73,6 +74,7 @@ class PBModel:
         self.swing_k = swing_k
         self.displacement_mult = displacement_mult
         self.max_history = max_history
+        self.struct_window = struct_window
         self.require_killzone = require_killzone
         self.news = news or NewsCalendar()
         self.htf_minutes = htf_minutes
@@ -91,6 +93,8 @@ class PBModel:
         self.htf2_trend: Optional[Direction] = None
         self._htf_bucket = None
         self._htf2_bucket = None
+        self._range_high = None
+        self._range_low = None
         self.pools: list = []
         self.conditions: Optional[MarketConditions] = None
         self._recent_sweep = None
@@ -161,10 +165,17 @@ class PBModel:
         self.breakers = self.breakers[-40:]
         self.voids = self.voids[-40:]
 
-        # Structure + liquidity pools from swings over the (capped) history.
-        swings = find_swings(self.bars, self.swing_k)
-        self.struct.update(swings, bar, i)
+        # Structure + liquidity pools from swings over a recent window (LTF structure
+        # only needs recent swings; the long-term picture comes from the HTF bias).
+        window = self.bars[-self.struct_window:]
+        swings = find_swings(window, self.swing_k)
+        self.struct.update(swings, bar, len(window) - 1)
         self.pools = build_pools(swings)
+
+        # Cache the dealing range (most recent swing low/high) for OTE — avoids a
+        # second find_swings pass inside ote_check.
+        self._range_high = next((s.price for s in reversed(swings) if s.kind == "high"), None)
+        self._range_low = next((s.price for s in reversed(swings) if s.kind == "low"), None)
 
         sweep = detect_sweep(self.pools, bar)
         if sweep:
@@ -237,11 +248,13 @@ class PBModel:
                 score += WEIGHTS["breaker"]
                 reasons.append("breaker block retest")
 
-            # OTE: entry sits in the configured fib retracement of the leg.
+            # OTE: entry sits in the configured fib retracement of the leg (reuse the
+            # cached dealing range instead of recomputing swings).
             side_for_ote = Side.LONG if trend is Direction.BULL else Side.SHORT
             entry_price = f.top if trend is Direction.BULL else f.bottom
-            if ote_check(self.bars, entry_price, side_for_ote, self.swing_k,
-                         self.ote_low, self.ote_high):
+            if self._range_low is not None and self._range_high is not None \
+                    and in_ote(entry_price, self._range_low, self._range_high,
+                               side_for_ote, self.ote_low, self.ote_high):
                 score += WEIGHTS["ote"]
                 reasons.append(f"OTE zone ({self.ote_low:.2f}-{self.ote_high:.2f} fib)")
 

@@ -15,12 +15,24 @@ def find_swings(bars: list[Bar], k: int = 2) -> list[SwingPoint]:
     swings: list[SwingPoint] = []
     n = len(bars)
     for i in range(k, n - k):
-        window = bars[i - k:i + k + 1]
         hi = bars[i].high
         lo = bars[i].low
-        if hi == max(b.high for b in window) and hi > bars[i - 1].high:
+        # Direct neighbor comparison (no per-bar max()/min() generators — much faster).
+        is_high = hi > bars[i - 1].high
+        is_low = lo < bars[i - 1].low
+        if is_high:
+            for j in range(1, k + 1):
+                if bars[i - j].high > hi or bars[i + j].high > hi:
+                    is_high = False
+                    break
+        if is_low:
+            for j in range(1, k + 1):
+                if bars[i - j].low < lo or bars[i + j].low < lo:
+                    is_low = False
+                    break
+        if is_high:
             swings.append(SwingPoint(i, bars[i].ts, hi, "high"))
-        if lo == min(b.low for b in window) and lo < bars[i - 1].low:
+        if is_low:
             swings.append(SwingPoint(i, bars[i].ts, lo, "low"))
     return swings
 
