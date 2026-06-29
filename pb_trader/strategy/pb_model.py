@@ -268,169 +268,125 @@ class PBModel:
         if self.min_displacement > 0 and self._displacement() < self.min_displacement:
             return None
 
-        lo, eq, hi = premium_discount(self.bars)
         ifvgs = active_ifvgs(self.fvgs)
         if not ifvgs:
             return None
 
-        # Fire when an aligned iFVG has FRESHLY inverted (we then place a limit at its CE
-        # and wait for the retest) — NOT mid-retest. This is the realistic ICT flow and
-        # removes the look-ahead of assuming a fill at a price the signal bar already hit.
-        best: Optional[Setup] = None
+        # Collect FRESHLY-inverted aligned candidates (cheap) before any heavy scoring.
+        # We fire on inversion and place a limit at the CE for the anticipated retest.
+        candidates = []
         for f in ifvgs:
             if f.direction != trend:
                 continue
             fresh = f.inverted_at >= 0 and 0 <= (i - f.inverted_at) <= self.signal_window
             key = (round(f.bottom, 2), round(f.top, 2), f.inverted_at)
-            if not fresh or key in self._signaled:
-                continue
+            if fresh and key not in self._signaled:
+                candidates.append((f, key))
+        if not candidates:
+            return None
 
-            score = 0.0
-            reasons: list[str] = []
+        # ---- f-INDEPENDENT components: compute ONCE per bar (was recomputed per
+        # candidate — the heavy detections dominated the profile). ----
+        lo, eq, hi = premium_discount(self.bars)
+        dq = self._displacement()
+        base = WEIGHTS["structure"]
+        base_reasons = [f"HTF structure {trend.value} (last event aligns)"]
 
-            score += WEIGHTS["structure"]
-            reasons.append(f"HTF structure {trend.value} (last event aligns)")
+        in_discount = bar.close < eq
+        if (trend is Direction.BULL and in_discount) or (trend is Direction.BEAR and not in_discount):
+            base += WEIGHTS["pd"]
+            base_reasons.append("price in " + ("discount" if in_discount else "premium") + " — aligned")
+        if self._recent_sweep is not None:
+            base += WEIGHTS["sweep"]
+            base_reasons.append(f"liquidity sweep: {self._recent_sweep.kind} @ {self._recent_sweep.price:.2f}")
+            if self._sweep_significant:
+                base += WEIGHTS["sweep_significant"]
+                base_reasons.append(f"significant liquidity taken: {self._sweep_significant}")
+        if detect_cisd(self.bars, trend):
+            base += WEIGHTS["cisd"]
+            base_reasons.append("CISD confirmation (delivery flipped)")
+        if detect_rejection_block(self.bars, trend):
+            base += WEIGHTS["rejection"]
+            base_reasons.append("rejection block (wick rejection)")
+        if self.htf_trend is not None and self.htf_trend == trend:
+            base += WEIGHTS["htf_bias"]
+            base_reasons.append(f"HTF({self.htf_minutes}m) bias {trend.value} aligned")
+        if self.htf2_trend is not None and self.htf2_trend == trend:
+            base += WEIGHTS["htf2_bias"]
+            base_reasons.append(f"HTF({self.htf2_minutes}m) bias {trend.value} aligned")
+        if retesting_block(self.blocks, trend, bar):
+            base += WEIGHTS["order_block"]
+            base_reasons.append("fresh order block retest")
+        if retesting_breaker(self.breakers, trend, bar):
+            base += WEIGHTS["breaker"]
+            base_reasons.append("breaker block retest")
+        if retesting_propulsion(self.blocks, trend, bar, tol=8 * self.tick):
+            base += WEIGHTS["propulsion"]
+            base_reasons.append("propulsion block (stacked OBs)")
+        base += WEIGHTS["displacement"] * dq
+        base_reasons.append(f"displacement quality {dq:.0%}")
+        mss = detect_mss(self.bars, self.swing_k)
+        if mss is not None and mss == trend:
+            base += WEIGHTS["mss"]
+            base_reasons.append(f"TJR MSS confirms {trend.value}")
+        kz = current_killzone(bar.ts)
+        if kz is not None:
+            base += WEIGHTS["killzone"]
+            base_reasons.append(f"killzone: {kz}")
+        mac = current_macro(bar.ts)
+        if mac is not None:
+            base += WEIGHTS["macro"]
+            base_reasons.append(f"ICT macro: {mac}")
+        if self.po3.bias_aligns(trend):
+            base += WEIGHTS["daily_bias"]
+            base_reasons.append(f"PO3 daily bias {self.po3.bias.value} aligned")
+        ob = self.sessions.opening_bias(bar.close)
+        if ob is not None and ob == trend:
+            base += WEIGHTS["opening_bias"]
+            base_reasons.append(f"opening-price bias {ob.value} (vs day open)")
+        wpd = self.sessions.weekly_pd_bias(bar.close)
+        if wpd is not None and wpd == trend:
+            base += WEIGHTS["weekly_pd"]
+            base_reasons.append(f"weekly {'discount' if trend is Direction.BULL else 'premium'} (PD array)")
+        if self.conditions:
+            base_reasons.append("conditions: " + "; ".join(self.conditions.reasons[:1]))
 
-            in_discount = bar.close < eq
-            if (trend is Direction.BULL and in_discount) or (trend is Direction.BEAR and not in_discount):
-                score += WEIGHTS["pd"]
-                reasons.append("price in " + ("discount" if in_discount else "premium") + " — aligned")
+        mech_ready = (self._recent_sweep is not None and self._sweep_index >= 0 and dq > 0.2)
+        side_for_ote = Side.LONG if trend is Direction.BULL else Side.SHORT
 
-            if self._recent_sweep is not None:
-                score += WEIGHTS["sweep"]
-                reasons.append(f"liquidity sweep: {self._recent_sweep.kind} @ {self._recent_sweep.price:.2f}")
-                # Bonus: the sweep took SIGNIFICANT liquidity (PDH/PDL/session/open).
-                if self._sweep_significant:
-                    score += WEIGHTS["sweep_significant"]
-                    reasons.append(f"significant liquidity taken: {self._sweep_significant}")
-
-            score += WEIGHTS["ifvg"]
-            reasons.append(f"iFVG retest [{f.bottom:.2f}, {f.top:.2f}]")
-
-            # PB MECHANICAL MODEL: the iFVG must have inverted AFTER the sweep (sequence:
-            # sweep → aggressive displacement that inverts the FVG → this retest). Order
-            # matters — that's the whole PB secret, not just the ingredients present.
-            mechanical = (self._recent_sweep is not None and f.inverted_at >= self._sweep_index
-                          and self._sweep_index >= 0 and self._displacement() > 0.2)
-            if mechanical:
+        # ---- f-DEPENDENT components: cheap, per candidate ----
+        best: Optional[Setup] = None
+        for f, key in candidates:
+            score = base + WEIGHTS["ifvg"]
+            reasons = base_reasons + [f"iFVG retest [{f.bottom:.2f}, {f.top:.2f}]"]
+            if mech_ready and f.inverted_at >= self._sweep_index:
                 score += WEIGHTS["mechanical_model"]
                 reasons.append("PB mechanical model: sweep → displacement-inversion → retest")
-
-            # PB sponsored FVG: institutional volume created the gap.
             if f.sponsored:
                 score += WEIGHTS["sponsored"]
                 reasons.append("sponsored FVG (institutional volume)")
-
-            # Balanced Price Range: entry sits where bull/bear FVGs overlap (delivered both ways).
-            if in_bpr(consequent_encroachment(f), self._bprs):
+            ce = consequent_encroachment(f)
+            if in_bpr(ce, self._bprs):
                 score += WEIGHTS["bpr"]
                 reasons.append("entry in balanced price range (BPR)")
-
-            # HTF-FVG nesting: the LTF entry sits inside a higher-timeframe FVG (PD array).
-            if in_htf_fvg(consequent_encroachment(f), self._htf_fvgs, trend):
+            if in_htf_fvg(ce, self._htf_fvgs, trend):
                 score += WEIGHTS["htf_fvg_nest"]
                 reasons.append(f"nested in HTF({self.htf_minutes}m) FVG")
-
-            # CISD: change in state of delivery confirms the flip in the trade direction.
-            if detect_cisd(self.bars, trend):
-                score += WEIGHTS["cisd"]
-                reasons.append("CISD confirmation (delivery flipped)")
-
-            # PB rejection block: a long-wick rejection aligned with the trade.
-            if detect_rejection_block(self.bars, trend):
-                score += WEIGHTS["rejection"]
-                reasons.append("rejection block (wick rejection)")
-
-            # HTF bias alignment (top-down confluence), primary + secondary timeframe.
-            if self.htf_trend is not None and self.htf_trend == trend:
-                score += WEIGHTS["htf_bias"]
-                reasons.append(f"HTF({self.htf_minutes}m) bias {trend.value} aligned")
-            if self.htf2_trend is not None and self.htf2_trend == trend:
-                score += WEIGHTS["htf2_bias"]
-                reasons.append(f"HTF({self.htf2_minutes}m) bias {trend.value} aligned")
-
-            # Order block: entry coincides with a fresh, aligned demand/supply block.
-            if retesting_block(self.blocks, trend, bar):
-                score += WEIGHTS["order_block"]
-                reasons.append("fresh order block retest")
-
-            # Breaker block: failed order block flipped to support/resistance.
-            if retesting_breaker(self.breakers, trend, bar):
-                score += WEIGHTS["breaker"]
-                reasons.append("breaker block retest")
-
-            # Propulsion block: stacked same-direction order blocks propelling the move.
-            if retesting_propulsion(self.blocks, trend, bar, tol=8 * self.tick):
-                score += WEIGHTS["propulsion"]
-                reasons.append("propulsion block (stacked OBs)")
-
-            # OTE: entry sits in the configured fib retracement of the leg (reuse the
-            # cached dealing range instead of recomputing swings).
-            side_for_ote = Side.LONG if trend is Direction.BULL else Side.SHORT
             entry_price = f.top if trend is Direction.BULL else f.bottom
             if self._range_low is not None and self._range_high is not None \
                     and in_ote(entry_price, self._range_low, self._range_high,
                                side_for_ote, self.ote_low, self.ote_high):
                 score += WEIGHTS["ote"]
                 reasons.append(f"OTE zone ({self.ote_low:.2f}-{self.ote_high:.2f} fib)")
-
-            # Liquidity void: an unfilled imbalance ahead in the trade direction.
             if nearest_unfilled_void(self.voids, entry_price, trend) is not None:
                 score += WEIGHTS["void"]
                 reasons.append("unfilled liquidity void ahead")
-
-            # Vacuum block: an unfilled price gap ahead to be rebalanced.
             if nearest_unfilled_void(self.vacuums, entry_price, trend) is not None:
                 score += WEIGHTS["vacuum"]
                 reasons.append("vacuum block (price gap) ahead")
 
-            dq = self._displacement()
-            score += WEIGHTS["displacement"] * dq
-            reasons.append(f"displacement quality {dq:.0%}")
-
-            # TJR: Market Structure Shift on the entry timeframe, aligned to trend.
-            mss = detect_mss(self.bars, self.swing_k)
-            if mss is not None and mss == trend:
-                score += WEIGHTS["mss"]
-                reasons.append(f"TJR MSS confirms {trend.value}")
-
-            # TJR: inside a high-probability killzone/session.
-            kz = current_killzone(bar.ts)
-            if kz is not None:
-                score += WEIGHTS["killzone"]
-                reasons.append(f"killzone: {kz}")
-
-            # ICT macro: inside a ~20-min algo window.
-            mac = current_macro(bar.ts)
-            if mac is not None:
-                score += WEIGHTS["macro"]
-                reasons.append(f"ICT macro: {mac}")
-
-            # TJR: PO3 daily bias (from the manipulation/judas sweep) agrees.
-            if self.po3.bias_aligns(trend):
-                score += WEIGHTS["daily_bias"]
-                reasons.append(f"PO3 daily bias {self.po3.bias.value} aligned")
-
-            # ICT opening-price bias: price vs the true day open agrees with the trade.
-            ob = self.sessions.opening_bias(bar.close)
-            if ob is not None and ob == trend:
-                score += WEIGHTS["opening_bias"]
-                reasons.append(f"opening-price bias {ob.value} (vs day open)")
-
-            # Weekly PD array: weekly premium/discount aligns with the trade direction.
-            wpd = self.sessions.weekly_pd_bias(bar.close)
-            if wpd is not None and wpd == trend:
-                score += WEIGHTS["weekly_pd"]
-                reasons.append(f"weekly {'discount' if trend is Direction.BULL else 'premium'} (PD array)")
-
-            # Add the live condition read to the rationale.
-            if self.conditions:
-                reasons.append("conditions: " + "; ".join(self.conditions.reasons[:1]))
-
-            # Hard gate: never below the 75% A+ threshold.
             if score < self.threshold:
                 continue
-
             self._signaled.add(key)        # one limit per inverted iFVG
             candidate = self._build_setup(bar, f, trend, score, reasons)
             if best is None or candidate.confluence > best.confluence:
