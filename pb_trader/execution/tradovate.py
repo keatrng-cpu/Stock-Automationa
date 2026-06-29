@@ -73,6 +73,14 @@ class TradovateClient:
         if accts:
             self.account_id = accts[0]["id"]
 
+    def get(self, path: str) -> list | dict:
+        """GET a REST endpoint (e.g. /fillPair/list)."""
+        self.ensure_auth()
+        resp = self._requests.get(f"{self.base}{path}",
+                                  headers=self._headers(), timeout=15)
+        resp.raise_for_status()
+        return resp.json()
+
     def place_oso(self, symbol: str, side: Side, qty: int, stop: float,
                   target: float) -> dict:
         """Place an entry market order with attached stop + target (bracket)."""
@@ -102,6 +110,8 @@ class TradovateBroker:
     def __init__(self, client: TradovateClient | None = None):
         self.client = client or TradovateClient()
         self.positions: list[Position] = []
+        self._seen_pairs: set = set()        # fillPair ids already turned into Trades
+        self._contract_symbol: dict = {}     # contractId -> our symbol (from placed orders)
 
     @property
     def equity(self) -> float:
@@ -129,6 +139,19 @@ class TradovateBroker:
         return pos
 
     def on_bar(self, bar: Bar) -> list[Trade]:
-        # Tradovate manages bracket exits server-side; reconcile via fills API.
-        # TODO: poll /fill/list to detect closed positions and emit Trade records.
-        return []
+        # Tradovate manages bracket exits server-side, so detect closes by polling
+        # matched fill pairs and emitting a Trade for each newly-closed pair.
+        return self.reconcile_fills()
+
+    def reconcile_fills(self) -> list[Trade]:
+        """Fetch closed fill pairs and return any not yet seen as Trades."""
+        from .tradovate_parse import parse_fill_pairs
+        try:
+            pairs = self.client.get("/fillPair/list")
+        except Exception:  # noqa: BLE001 — network/poll errors shouldn't crash the loop
+            return []
+        fresh = [p for p in pairs if not p.get("active", False)
+                 and p.get("id") not in self._seen_pairs]
+        for p in fresh:
+            self._seen_pairs.add(p.get("id"))
+        return parse_fill_pairs(fresh, self._contract_symbol)

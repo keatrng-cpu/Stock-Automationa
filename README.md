@@ -79,6 +79,10 @@ You should see trades, an equity curve summary, win rate, expectancy, and max dr
    ```bash
    python -m pb_trader.live --mode paper --source tradovate
    ```
+   > The Tradovate live-data feed (chart WebSocket) and fill reconciliation are
+   > implemented, with the payload **parsers unit-tested offline**. The socket/REST
+   > plumbing must be validated against a real demo account before you rely on it —
+   > the parsers are correct; the network layer is untested here.
 6. Going live is a deliberate, separate step — see `docs/PB_STRATEGY.md` → "Promotion checklist".
 
 ---
@@ -92,7 +96,9 @@ You should see trades, an equity curve summary, win rate, expectancy, and max dr
 | `pb_trader/data/` | Data sources: synthetic, Databento, Tradovate, CSV |
 | `pb_trader/strategy/` | PB model: structure, FVG/iFVG, liquidity, SMT, orchestrator |
 | `pb_trader/risk.py` | Position sizing + risk caps |
-| `pb_trader/execution/` | Brokers: paper sim + Tradovate adapter |
+| `pb_trader/execution/` | Brokers: paper sim + Tradovate adapter (orders, OSO brackets, fill reconciliation) |
+| `pb_trader/execution/tradovate_ws.py` | Tradovate WebSocket client (chart data + auth) |
+| `pb_trader/execution/tradovate_parse.py` | Tested parsers: chart bars + fill pairs → models |
 | `pb_trader/backtest.py` | Event-driven backtester + CLI |
 | `pb_trader/analytics.py` | Metrics (profit factor, Sharpe, DD), breakdowns, ASCII equity curve |
 | `pb_trader/optimize.py` | Parameter tuning harness with train/test robustness |

@@ -175,6 +175,44 @@ def test_liquidity_void_detection():
     assert any(v.direction is Direction.BULL for v in voids)
 
 
+def test_tradovate_root_symbol():
+    from pb_trader.execution.tradovate_parse import root_symbol
+    assert root_symbol("ESM6") == "ES"
+    assert root_symbol("MNQU6") == "MNQ"
+    assert root_symbol("MESZ6") == "MES"
+
+
+def test_tradovate_parse_chart_bars():
+    from pb_trader.execution.tradovate_parse import parse_chart_bars
+    packet = {"charts": [{"id": 1, "bars": [
+        {"timestamp": "2026-06-26T13:30:00.000Z", "open": 5500.0, "high": 5502.0,
+         "low": 5499.5, "close": 5501.0, "upVolume": 100, "downVolume": 80},
+        {"timestamp": "2026-06-26T13:31:00.000Z", "open": 5501.0, "high": 5503.0,
+         "low": 5500.5, "close": 5502.5, "upVolume": 60, "downVolume": 40},
+    ]}]}
+    bars = parse_chart_bars(packet, "ES")
+    assert len(bars) == 2
+    assert bars[0].close == 5501.0 and bars[0].volume == 180
+    assert bars[0].symbol == "ES" and bars[1].ts > bars[0].ts
+
+
+def test_tradovate_parse_fill_pairs():
+    from pb_trader.execution.tradovate_parse import parse_fill_pairs
+    from pb_trader.models import Side
+    pairs = [
+        {"id": 1, "contractId": 99, "qty": 2, "buyPrice": 5000.0, "sellPrice": 5010.0,
+         "active": False, "timestamp": "2026-06-26T14:00:00Z",
+         "buyFillTimestamp": "2026-06-26T13:50:00Z", "sellFillTimestamp": "2026-06-26T14:00:00Z"},
+        {"id": 2, "contractId": 99, "qty": 1, "buyPrice": 5020.0, "sellPrice": 5015.0,
+         "active": True},   # still open -> ignored
+    ]
+    trades = parse_fill_pairs(pairs, {99: "MES"})
+    assert len(trades) == 1
+    t = trades[0]
+    # (5010-5000)*2*$5 = $100; bought before sold -> long.
+    assert t.symbol == "MES" and t.side is Side.LONG and t.pnl == 100.0
+
+
 def test_walk_forward_runs():
     from pb_trader.walkforward import walk_forward
     res = walk_forward(["ES", "NQ"], bars=6000, folds=2, is_ratio=2,
