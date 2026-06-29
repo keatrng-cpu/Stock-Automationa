@@ -61,7 +61,9 @@ def run_backtest(symbols: list[str], source_name: str = "synthetic",
     threshold = mk.pop("confluence_threshold", settings.confluence_threshold)
     mk.setdefault("tp_max_r", settings.tp_max_r)
     models = {s: PBModel(s, threshold, **mk) for s in symbols}
-    broker = PaperBroker(start_equity or settings.account_equity, settings.slippage_ticks)
+    broker = PaperBroker(start_equity or settings.account_equity, settings.slippage_ticks,
+                         manage=settings.trade_mgmt, scale_at_r=settings.scale_at_r,
+                         scale_frac=settings.scale_frac)
     setups_this_session = 0
     last_session = None
 

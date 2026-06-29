@@ -40,7 +40,10 @@ def run_live(symbols: list[str], mode: str = "paper", source_name: str = "synthe
         else get_source(source_name)
     broker = get_broker("paper" if mode == "paper" else "live",
                         **({"equity": settings.account_equity,
-                            "slippage_ticks": settings.slippage_ticks}
+                            "slippage_ticks": settings.slippage_ticks,
+                            "manage": settings.trade_mgmt,
+                            "scale_at_r": settings.scale_at_r,
+                            "scale_frac": settings.scale_frac}
                            if mode == "paper" else {}))
     models = {s: PBModel(s, settings.confluence_threshold, tp_max_r=settings.tp_max_r)
               for s in symbols}

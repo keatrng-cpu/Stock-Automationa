@@ -21,6 +21,36 @@ from .optimize import optimize
 from .walkforward import walk_forward
 
 
+def ab_test(symbols, source="synthetic", bars=16000, start=None, end=None,
+            timeframe="1m") -> None:
+    """Measure whether the intelligence/management layers actually add edge.
+
+    Compares: raw model (no brain, no trade-mgmt, no sweep gate) vs the full system.
+    On real data this tells you if the enhancements help or just add complexity.
+    """
+    print("\n  A/B — does the 'smart' layer add edge? (same data, different machinery)")
+    variants = {
+        "raw model": dict(use_brain=False, model_kwargs={"require_sweep": False}),
+        "full system": dict(use_brain=True),
+    }
+    import os
+    prev = os.environ.get("PB_TRADE_MGMT")
+    for name, kw in variants.items():
+        os.environ["PB_TRADE_MGMT"] = "false" if name == "raw model" else "true"
+        import importlib
+        from . import config as _cfg
+        importlib.reload(_cfg)
+        r = run_backtest(symbols, source, bars, start, end, timeframe, verbose=False, **kw)
+        m = r.metrics
+        print(f"    {name:<13} trades={m.trades:<4} win={m.win_rate:<5.0%} "
+              f"PF={_pf(m.profit_factor)}  expectancy={m.expectancy_r:+.2f}R  "
+              f"net=${r.end_equity-r.start_equity:+,.2f}")
+    if prev is None:
+        os.environ.pop("PB_TRADE_MGMT", None)
+    else:
+        os.environ["PB_TRADE_MGMT"] = prev
+
+
 def run(symbols, source="synthetic", bars=16000, start=None, end=None,
         timeframe="1m") -> dict:
     print("\n" + "#" * 64)
@@ -62,7 +92,9 @@ def run(symbols, source="synthetic", bars=16000, start=None, end=None,
     print(f"  VERDICT: {verdict}")
     print(f"  {why}")
     print("\n" + goals.render(settings.account_equity, agg.expectancy_r, settings.risk_pct))
-    print("=" * 64 + "\n")
+    print("=" * 64)
+    ab_test(symbols, source, bars, start, end, timeframe)
+    print()
     return {"backtest": m, "best_params": best, "walkforward": wf, "verdict": verdict}
 
 

@@ -212,6 +212,9 @@ class Position:
     targets: list[float]
     opened_ts: datetime
     tag: str = ""
+    init_qty: int = 0          # original size (for partial scale-outs)
+    init_risk: float = 0.0     # entry-to-stop distance at open (for R math)
+    scaled: bool = False       # partial taken + stop moved to breakeven
 
 
 @dataclass

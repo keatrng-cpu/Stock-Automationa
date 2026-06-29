@@ -58,6 +58,10 @@ class Settings:
     confluence_threshold: float = max(_f("PB_CONFLUENCE_THRESHOLD", 0.75), 0.75)
     # Realistic cost model: per-side slippage in ticks (commission is per-contract in CONTRACTS).
     slippage_ticks: float = _f("PB_SLIPPAGE_TICKS", 1.0)
+    # Trade management: bank a partial + move to breakeven at scale_at_r, runner to target.
+    trade_mgmt: bool = os.environ.get("PB_TRADE_MGMT", "true").lower() != "false"
+    scale_at_r: float = _f("PB_SCALE_AT_R", 1.0)
+    scale_frac: float = _f("PB_SCALE_FRAC", 0.5)
 
     @property
     def risk_is_aggressive(self) -> bool:

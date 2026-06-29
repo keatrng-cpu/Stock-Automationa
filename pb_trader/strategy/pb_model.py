@@ -72,7 +72,9 @@ class PBModel:
                  ote_high: float = 0.79,
                  tp_min_r: float = 1.0,
                  tp_max_r: float = 3.0,
-                 min_stop_ticks: int = 8):
+                 min_stop_ticks: int = 8,
+                 require_sweep: bool = True,
+                 min_displacement: float = 0.0):
         self.symbol = symbol
         self.threshold = confluence_threshold
         self.swing_k = swing_k
@@ -89,6 +91,8 @@ class PBModel:
         self.tp_min_r = tp_min_r
         self.tp_max_r = tp_max_r
         self.min_stop_ticks = min_stop_ticks
+        self.require_sweep = require_sweep
+        self.min_displacement = min_displacement
         self.tick = CONTRACTS.get(symbol, {}).get("tick", 0.25)
         self.bars: list[Bar] = []
         self.struct = StructureState()
@@ -204,6 +208,14 @@ class PBModel:
         # Top-down gate: don't fight a decided higher-timeframe bias.
         if self.require_htf_alignment and self.htf_trend is not None \
                 and self.htf_trend != trend:
+            return None
+
+        # Core-SMC gate: an A+ requires liquidity to have been taken (the stop-hunt).
+        # No sweep → no trade. This is the heart of the model, so it's mandatory.
+        if self.require_sweep and self._recent_sweep is None:
+            return None
+        # Optional displacement-energy gate: skip limp moves.
+        if self.min_displacement > 0 and self._displacement() < self.min_displacement:
             return None
 
         lo, eq, hi = premium_discount(self.bars)

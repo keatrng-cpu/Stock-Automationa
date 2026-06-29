@@ -118,6 +118,37 @@ def test_ote_zone():
     assert not in_ote(108.0, 100, 110, Side.LONG)
 
 
+def test_trade_management_partial_and_breakeven():
+    from pb_trader.execution.paper import PaperBroker
+    from pb_trader.models import Order, OrderType
+    b = PaperBroker(100_000, slippage_ticks=0, manage=True, scale_at_r=1.0, scale_frac=0.5)
+    order = Order("ES", Side.LONG, 2, OrderType.MARKET, price=5000, stop=4990,
+                  targets=[5030])           # risk 10pts, target +3R
+    t0 = datetime(2026, 6, 26, 9, 30)
+    b.submit_at(order, 5000, t0)
+    # Bar reaches +1R (5010) but not target -> bank half, move stop to breakeven.
+    closed = b.on_bar(Bar(datetime(2026, 6, 26, 9, 40), 5005, 5012, 5004, 5008, 100, "ES"))
+    assert len(closed) == 1 and closed[0].reason == "scale" and closed[0].qty == 1
+    pos = b.open_positions()[0]
+    assert pos.scaled and pos.stop == pos.entry and pos.qty == 1
+    # Now price pulls back to entry -> runner stops at breakeven (not a full loss).
+    closed2 = b.on_bar(Bar(datetime(2026, 6, 26, 9, 50), 5005, 5006, 4999, 5000, 100, "ES"))
+    assert closed2 and closed2[0].reason == "be-stop"
+
+
+def test_sweep_is_mandatory_for_a_plus():
+    from pb_trader.strategy.pb_model import PBModel
+    m = PBModel("ES", require_sweep=True)
+    # With no recorded sweep, _evaluate must stand aside even if other gates pass.
+    m._recent_sweep = None
+    # force a trend so we get past the first gate
+    from pb_trader.models import Direction
+    m.struct.trend = Direction.BULL
+    m.htf_trend = None
+    assert m._evaluate.__self__ is m       # sanity: bound method
+    assert m._evaluate(Bar(datetime(2026, 6, 26, 10, 0), 5000, 5001, 4999, 5000, 1, "ES"), 50) is None
+
+
 def test_costs_reduce_pnl():
     from pb_trader.execution.paper import PaperBroker
     from pb_trader.models import Order, OrderType

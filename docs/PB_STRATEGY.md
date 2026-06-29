@@ -110,8 +110,21 @@ only after the HTF-alignment + conditions + news gates pass.
 `risk.py`, `execution/`
 
 - Size = ⌊(equity × risk%) / (stop_pts × point_value)⌋. Floored to stay under the cap.
-- Min 1:2 R:R or rejected. Bracket order (entry + stop + target).
-- Paper broker simulates fills (stop-before-target pessimism). Tradovate places live OSO brackets.
+- R:R band 1:1–1:3 or rejected. Bracket order (entry + stop + target).
+- **Trade management** (the biggest realized-expectancy lever): at +1R, bank a partial
+  (default 50%) and move the stop to **breakeven**; let the runner reach the draw. This
+  turns many would-be full losers into breakeven/small wins and lets winners pay 2–3R.
+  (`config.trade_mgmt`, `scale_at_r`, `scale_frac`.)
+- **Mandatory sweep gate**: no A+ without liquidity having been taken first — the
+  stop-hunt IS the setup. (`PBModel.require_sweep`.)
+- Paper broker simulates managed fills (stop-before-target pessimism). Tradovate places
+  live OSO brackets.
+
+## 10. Measuring the enhancements (A/B)
+`validate.py` runs an A/B — raw model (no brain, no management, no sweep gate) vs the
+full system — on the SAME data, so you can see whether the "smart" layer actually adds
+edge rather than just complexity. On synthetic data both are ~breakeven-negative (no real
+edge in noise); on real data the gap is the value of the intelligence.
 
 ---
 
