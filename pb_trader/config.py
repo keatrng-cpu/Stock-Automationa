@@ -54,8 +54,8 @@ class Settings:
     # Reward:risk band for targets (1:1 .. 1:3).
     min_rr: float = _f("PB_MIN_RR", 1.0)
     tp_max_r: float = _f("PB_TP_MAX_R", 3.0)
-    # A+ gate: never take a setup below 75% confluence.
-    confluence_threshold: float = max(_f("PB_CONFLUENCE_THRESHOLD", 0.75), 0.75)
+    # A+ gate: default raised to 0.78 (fewer, higher-conviction setups); floor 0.75.
+    confluence_threshold: float = max(_f("PB_CONFLUENCE_THRESHOLD", 0.78), 0.75)
     # Realistic cost model: per-side slippage in ticks (commission is per-contract in CONTRACTS).
     slippage_ticks: float = _f("PB_SLIPPAGE_TICKS", 1.0)
     # Trade management: bank a partial + move to breakeven at scale_at_r, runner to target.

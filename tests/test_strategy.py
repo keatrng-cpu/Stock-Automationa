@@ -474,6 +474,33 @@ def test_memory_learns_feature_edge():
     assert long_edge > 0 and short_edge < 0 and long_edge > short_edge
 
 
+def test_adaptive_thaws_when_idle():
+    # The defensive posture must not deadlock: after enough idle bars it steps back.
+    from pb_trader.adaptive import AdaptiveRisk
+    from pb_trader.models import Trade
+    a = AdaptiveRisk(recovery_bars=100)
+    t0 = datetime(2026, 6, 26, 10, 0)
+    for _ in range(3):
+        a.record(Trade("ES", Side.LONG, 1, 5000, 4990, t0, t0, pnl=-20, r_multiple=-1.0))
+    assert a.loss_streak == 3 and a.threshold_bump() > 0
+    for _ in range(100):    # idle (no trades)
+        a.tick()
+    assert a.loss_streak < 3          # thawed toward neutral, not frozen
+
+
+def test_trader_profiles():
+    from pb_trader.profiles import get_profile, PROFILES
+    for name in ("blake", "ronan", "patty", "default"):
+        p = get_profile(name)
+        mk = p.model_kwargs()
+        assert "weights" in mk and abs(sum(mk["weights"].values())) > 0
+        assert mk["confluence_threshold"] >= 0.75
+    # Blake emphasizes the mechanical model more than the default.
+    blake_w = get_profile("blake").weights()
+    base_w = get_profile("default").weights()
+    assert blake_w["mechanical_model"] > base_w["mechanical_model"]
+
+
 def test_adaptive_defensive_after_losses():
     from pb_trader.adaptive import AdaptiveRisk
     from pb_trader.models import Trade

@@ -87,5 +87,9 @@ class TradingBrain:
         self.memory.record(trade)
         self.adaptive.record(trade, equity)
 
+    def tick(self) -> None:
+        """Per-bar heartbeat so the defensive posture can thaw when idle (anti-deadlock)."""
+        self.adaptive.tick()
+
     def state(self) -> str:
         return self.adaptive.state()

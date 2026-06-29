@@ -24,16 +24,19 @@ def week_bars(timeframe: str) -> int:
     return max(1, (7 * 24 * 3600) // parse_tf(timeframe))
 
 
-def run(symbols, weeks=12, source="neutral", timeframe="1m") -> None:
+def run(symbols, weeks=12, source="neutral", timeframe="1m", profile=None) -> None:
     wb = week_bars(timeframe)
     total = wb * weeks
-    brain = TradingBrain(base_threshold=settings.confluence_threshold,
-                         memory=TradeMemory(shrink_k=8.0))
+    base_thr = settings.confluence_threshold
+    if profile:
+        from .profiles import get_profile
+        base_thr = get_profile(profile).threshold
+    brain = TradingBrain(base_threshold=base_thr, memory=TradeMemory(shrink_k=8.0))
     series = load_series(symbols, source, total, timeframe=timeframe)
     n = min(len(v) for v in series.values())
     weeks = n // wb
     r = run_backtest(symbols, source, total, timeframe=timeframe, verbose=False,
-                     series=series, brain=brain, checkpoint_bars=wb)
+                     series=series, brain=brain, checkpoint_bars=wb, profile=profile)
 
     print("\n" + "=" * 74)
     print(f"  WEEK-BY-WEEK LEDGER  '{source}' {timeframe}  ${settings.account_equity:,.0f} start, "
@@ -74,8 +77,10 @@ def main() -> None:
                    choices=["synthetic", "neutral", "adversarial", "csv", "databento"])
     p.add_argument("--weeks", type=int, default=12)
     p.add_argument("--timeframe", default="1m", choices=LADDER)
+    p.add_argument("--profile", default=None,
+                   choices=["blake", "ronan", "patty", "default"])
     args = p.parse_args()
-    run(args.symbols, args.weeks, args.source, args.timeframe)
+    run(args.symbols, args.weeks, args.source, args.timeframe, args.profile)
 
 
 if __name__ == "__main__":

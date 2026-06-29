@@ -21,13 +21,24 @@ class AdaptiveRisk:
     window: int = 20
     max_threshold_bump: float = 0.06
     min_risk_mult: float = 0.4
+    recovery_bars: int = 1440      # thaw the defense after this many idle bars (no trades)
     recent: deque = field(default_factory=lambda: deque(maxlen=20))
     loss_streak: int = 0
     win_streak: int = 0
     peak_equity: float = 0.0
     equity: float = 0.0
+    idle: int = 0                  # bars since the last trade closed
+
+    def tick(self) -> None:
+        """Called each bar. Thaws the defensive posture if it's been idle too long, so
+        a raised bar / cut size can never DEADLOCK the engine (no trades -> no recovery)."""
+        self.idle += 1
+        if self.idle >= self.recovery_bars and self.loss_streak > 0:
+            self.loss_streak = max(0, self.loss_streak - 1)   # step back toward neutral
+            self.idle = 0
 
     def record(self, trade: Trade, equity: float | None = None) -> None:
+        self.idle = 0
         self.recent.append(1 if trade.pnl >= 0 else 0)
         if trade.pnl >= 0:
             self.win_streak += 1

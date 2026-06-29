@@ -53,9 +53,13 @@ def run_backtest(symbols: list[str], source_name: str = "synthetic",
                  start_equity: float | None = None,
                  brain: TradingBrain | None = None,
                  use_brain: bool = True,
-                 checkpoint_bars: int | None = None) -> BacktestResult:
+                 checkpoint_bars: int | None = None,
+                 profile: str | None = None) -> BacktestResult:
     if use_micros is None:
         use_micros = settings.use_micros
+    if profile:
+        from .profiles import get_profile
+        model_kwargs = {**get_profile(profile).model_kwargs(), **(model_kwargs or {})}
     if use_brain and brain is None:
         brain = TradingBrain(base_threshold=settings.confluence_threshold)
     if series is None:
@@ -95,6 +99,8 @@ def run_backtest(symbols: list[str], source_name: str = "synthetic",
                 "win_streak": ad.win_streak if ad else 0,
                 "drawdown": ad.drawdown if ad else 0.0,
             })
+        if brain:
+            brain.tick()                        # per-bar heartbeat (anti-deadlock thaw)
         for s in symbols:
             bar = series[s][i]
             sess = bar.ts.date()
@@ -218,9 +224,13 @@ def main() -> None:
     p.add_argument("--micros", action="store_true", default=None,
                    help="force micro contracts (default: per PB_USE_MICROS / config)")
     p.add_argument("--equity-csv", default=None, help="write the equity curve to CSV")
+    p.add_argument("--profile", default=None,
+                   choices=["blake", "ronan", "patty", "default"],
+                   help="PB trader profile (setup/execution style)")
     args = p.parse_args()
     run_backtest(args.symbols, args.source, args.bars, args.start, args.end,
-                 args.timeframe, args.micros, equity_csv=args.equity_csv)
+                 args.timeframe, args.micros, equity_csv=args.equity_csv,
+                 profile=args.profile)
 
 
 if __name__ == "__main__":

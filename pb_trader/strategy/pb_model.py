@@ -97,7 +97,8 @@ class PBModel:
                  require_sweep: bool = True,
                  min_displacement: float = 0.0,
                  entry_mode: str = "ce",      # "ce" = consequent encroachment, "edge"
-                 signal_window: int = 3):     # fire within N bars of the iFVG inverting
+                 signal_window: int = 3,      # fire within N bars of the iFVG inverting
+                 weights: Optional[dict] = None):   # per-profile confluence emphasis
         self.symbol = symbol
         self.threshold = confluence_threshold
         self.swing_k = swing_k
@@ -118,6 +119,10 @@ class PBModel:
         self.min_displacement = min_displacement
         self.entry_mode = entry_mode
         self.signal_window = signal_window
+        # Confluence weights (optionally a profile's emphasis), normalized to sum 1.0.
+        w = weights or WEIGHTS
+        wt = sum(w.values()) or 1.0
+        self.weights = {k: v / wt for k, v in w.items()}
         self._signaled: set = set()    # iFVGs already signalled (avoid duplicate limits)
         self.tick = CONTRACTS.get(symbol, {}).get("tick", 0.25)
         self.sessions = SessionTracker()
@@ -289,64 +294,64 @@ class PBModel:
         # candidate — the heavy detections dominated the profile). ----
         lo, eq, hi = premium_discount(self.bars)
         dq = self._displacement()
-        base = WEIGHTS["structure"]
+        base = self.weights["structure"]
         base_reasons = [f"HTF structure {trend.value} (last event aligns)"]
 
         in_discount = bar.close < eq
         if (trend is Direction.BULL and in_discount) or (trend is Direction.BEAR and not in_discount):
-            base += WEIGHTS["pd"]
+            base += self.weights["pd"]
             base_reasons.append("price in " + ("discount" if in_discount else "premium") + " — aligned")
         if self._recent_sweep is not None:
-            base += WEIGHTS["sweep"]
+            base += self.weights["sweep"]
             base_reasons.append(f"liquidity sweep: {self._recent_sweep.kind} @ {self._recent_sweep.price:.2f}")
             if self._sweep_significant:
-                base += WEIGHTS["sweep_significant"]
+                base += self.weights["sweep_significant"]
                 base_reasons.append(f"significant liquidity taken: {self._sweep_significant}")
         if detect_cisd(self.bars, trend):
-            base += WEIGHTS["cisd"]
+            base += self.weights["cisd"]
             base_reasons.append("CISD confirmation (delivery flipped)")
         if detect_rejection_block(self.bars, trend):
-            base += WEIGHTS["rejection"]
+            base += self.weights["rejection"]
             base_reasons.append("rejection block (wick rejection)")
         if self.htf_trend is not None and self.htf_trend == trend:
-            base += WEIGHTS["htf_bias"]
+            base += self.weights["htf_bias"]
             base_reasons.append(f"HTF({self.htf_minutes}m) bias {trend.value} aligned")
         if self.htf2_trend is not None and self.htf2_trend == trend:
-            base += WEIGHTS["htf2_bias"]
+            base += self.weights["htf2_bias"]
             base_reasons.append(f"HTF({self.htf2_minutes}m) bias {trend.value} aligned")
         if retesting_block(self.blocks, trend, bar):
-            base += WEIGHTS["order_block"]
+            base += self.weights["order_block"]
             base_reasons.append("fresh order block retest")
         if retesting_breaker(self.breakers, trend, bar):
-            base += WEIGHTS["breaker"]
+            base += self.weights["breaker"]
             base_reasons.append("breaker block retest")
         if retesting_propulsion(self.blocks, trend, bar, tol=8 * self.tick):
-            base += WEIGHTS["propulsion"]
+            base += self.weights["propulsion"]
             base_reasons.append("propulsion block (stacked OBs)")
-        base += WEIGHTS["displacement"] * dq
+        base += self.weights["displacement"] * dq
         base_reasons.append(f"displacement quality {dq:.0%}")
         mss = detect_mss(self.bars, self.swing_k)
         if mss is not None and mss == trend:
-            base += WEIGHTS["mss"]
+            base += self.weights["mss"]
             base_reasons.append(f"TJR MSS confirms {trend.value}")
         kz = current_killzone(bar.ts)
         if kz is not None:
-            base += WEIGHTS["killzone"]
+            base += self.weights["killzone"]
             base_reasons.append(f"killzone: {kz}")
         mac = current_macro(bar.ts)
         if mac is not None:
-            base += WEIGHTS["macro"]
+            base += self.weights["macro"]
             base_reasons.append(f"ICT macro: {mac}")
         if self.po3.bias_aligns(trend):
-            base += WEIGHTS["daily_bias"]
+            base += self.weights["daily_bias"]
             base_reasons.append(f"PO3 daily bias {self.po3.bias.value} aligned")
         ob = self.sessions.opening_bias(bar.close)
         if ob is not None and ob == trend:
-            base += WEIGHTS["opening_bias"]
+            base += self.weights["opening_bias"]
             base_reasons.append(f"opening-price bias {ob.value} (vs day open)")
         wpd = self.sessions.weekly_pd_bias(bar.close)
         if wpd is not None and wpd == trend:
-            base += WEIGHTS["weekly_pd"]
+            base += self.weights["weekly_pd"]
             base_reasons.append(f"weekly {'discount' if trend is Direction.BULL else 'premium'} (PD array)")
         if self.conditions:
             base_reasons.append("conditions: " + "; ".join(self.conditions.reasons[:1]))
@@ -357,32 +362,32 @@ class PBModel:
         # ---- f-DEPENDENT components: cheap, per candidate ----
         best: Optional[Setup] = None
         for f, key in candidates:
-            score = base + WEIGHTS["ifvg"]
+            score = base + self.weights["ifvg"]
             reasons = base_reasons + [f"iFVG retest [{f.bottom:.2f}, {f.top:.2f}]"]
             if mech_ready and f.inverted_at >= self._sweep_index:
-                score += WEIGHTS["mechanical_model"]
+                score += self.weights["mechanical_model"]
                 reasons.append("PB mechanical model: sweep → displacement-inversion → retest")
             if f.sponsored:
-                score += WEIGHTS["sponsored"]
+                score += self.weights["sponsored"]
                 reasons.append("sponsored FVG (institutional volume)")
             ce = consequent_encroachment(f)
             if in_bpr(ce, self._bprs):
-                score += WEIGHTS["bpr"]
+                score += self.weights["bpr"]
                 reasons.append("entry in balanced price range (BPR)")
             if in_htf_fvg(ce, self._htf_fvgs, trend):
-                score += WEIGHTS["htf_fvg_nest"]
+                score += self.weights["htf_fvg_nest"]
                 reasons.append(f"nested in HTF({self.htf_minutes}m) FVG")
             entry_price = f.top if trend is Direction.BULL else f.bottom
             if self._range_low is not None and self._range_high is not None \
                     and in_ote(entry_price, self._range_low, self._range_high,
                                side_for_ote, self.ote_low, self.ote_high):
-                score += WEIGHTS["ote"]
+                score += self.weights["ote"]
                 reasons.append(f"OTE zone ({self.ote_low:.2f}-{self.ote_high:.2f} fib)")
             if nearest_unfilled_void(self.voids, entry_price, trend) is not None:
-                score += WEIGHTS["void"]
+                score += self.weights["void"]
                 reasons.append("unfilled liquidity void ahead")
             if nearest_unfilled_void(self.vacuums, entry_price, trend) is not None:
-                score += WEIGHTS["vacuum"]
+                score += self.weights["vacuum"]
                 reasons.append("vacuum block (price gap) ahead")
 
             if score < self.threshold:
