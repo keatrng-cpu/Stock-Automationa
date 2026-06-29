@@ -114,6 +114,22 @@ def detect_cisd(bars: list[Bar], direction: Direction, lookback: int = 12) -> bo
         return last.close < window[run_start].open
 
 
+def detect_rejection_block(bars: list[Bar], direction: Direction,
+                           lookback: int = 5, wick_mult: float = 2.0) -> bool:
+    """Rejection block: a recent candle with a long wick rejecting price in the trade
+    direction (a bullish rejection = long lower wick; bearish = long upper wick).
+    """
+    for b in bars[-lookback:]:
+        body = b.body or 0.0001
+        upper = b.high - max(b.open, b.close)
+        lower = min(b.open, b.close) - b.low
+        if direction is Direction.BULL and lower >= wick_mult * body and lower > upper:
+            return True
+        if direction is Direction.BEAR and upper >= wick_mult * body and upper > lower:
+            return True
+    return False
+
+
 def premium_discount(bars: list[Bar], lookback: int = 50) -> tuple[float, float, float]:
     """Return (low, equilibrium, high) of the recent dealing range.
 

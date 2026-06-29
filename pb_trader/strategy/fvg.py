@@ -20,23 +20,35 @@ def detect_fvgs(bars: list[Bar], min_size: float = 0.0) -> list[FVG]:
     return out
 
 
-def new_fvg(bars: list[Bar], min_size: float = 0.0):
-    """Detect a single FVG that completes on the latest bar (incremental use)."""
+def new_fvg(bars: list[Bar], min_size: float = 0.0, sponsor_mult: float = 1.3):
+    """Detect a single FVG that completes on the latest bar (incremental use).
+
+    Marks the gap as *sponsored* (PB) when the displacement candle that created it
+    traded above-average volume — i.e. institutionally backed, not a thin drift.
+    """
     if len(bars) < 3:
         return None
     a, c = bars[-3], bars[-1]
+    # Sponsorship: displacement candle volume vs the recent average.
+    window = bars[-21:-1]
+    avg_vol = (sum(b.volume for b in window) / len(window)) if window else 0.0
+    sponsored = avg_vol > 0 and c.volume >= sponsor_mult * avg_vol
+    idx = len(bars) - 1
     if c.low > a.high and (c.low - a.high) > min_size:
-        return FVG(Direction.BULL, top=c.low, bottom=a.high, ts=c.ts, index=len(bars) - 1)
+        return FVG(Direction.BULL, top=c.low, bottom=a.high, ts=c.ts, index=idx,
+                   sponsored=sponsored)
     if c.high < a.low and (a.low - c.high) > min_size:
-        return FVG(Direction.BEAR, top=a.low, bottom=c.high, ts=c.ts, index=len(bars) - 1)
+        return FVG(Direction.BEAR, top=a.low, bottom=c.high, ts=c.ts, index=idx,
+                   sponsored=sponsored)
     return None
 
 
-def update_fvg_states(fvgs: list[FVG], bar: Bar) -> None:
+def update_fvg_states(fvgs: list[FVG], bar: Bar, index: int = -1) -> None:
     """Mark fills and inversions as new price prints.
 
     A bullish FVG is *filled* when price trades back into it; it *inverts* to bearish
     resistance once a candle closes fully below it (iFVG), and symmetrically for bears.
+    `index` records WHEN the inversion happened (for PB mechanical-model sequencing).
     """
     for f in fvgs:
         if f.inverted:
@@ -45,9 +57,11 @@ def update_fvg_states(fvgs: list[FVG], bar: Bar) -> None:
             f.filled = True
         if f.direction is Direction.BULL and bar.close < f.bottom:
             f.inverted = True
+            f.inverted_at = index
             f.direction = Direction.BEAR
         elif f.direction is Direction.BEAR and bar.close > f.top:
             f.inverted = True
+            f.inverted_at = index
             f.direction = Direction.BULL
 
 

@@ -68,29 +68,42 @@ class TradeMemory:
             self.load()
 
     # ---- feature extraction ----
-    def _features(self, symbol: str, side: Side, ts: datetime, tag: str) -> list[str]:
-        return [
+    def _features(self, symbol: str, side: Side, ts: datetime, tag: str,
+                  feats: dict | None = None) -> list[str]:
+        keys = [
             f"sym:{symbol}",
             f"side:{side.value}",
             f"sess:{session_of(ts)}",
             f"conf:{conf_bucket(tag)}",
             f"sym_side:{symbol}:{side.value}",
         ]
+        # Concept + context awareness: learn how each SMC/ICT/PB concept performs, and
+        # how it performs in the current REGIME (so the brain knows WHEN to use them).
+        if feats:
+            regime = feats.get("regime", "na")
+            keys.append(f"regime:{regime}")
+            for c in feats.get("concepts", []):
+                keys.append(f"concept:{c}")
+                keys.append(f"cr:{c}:{regime}")     # concept-in-regime (context)
+        return keys
 
     # ---- learning ----
     def record(self, trade: Trade, persist: bool = True) -> None:
         self.count += 1
-        for f in self._features(trade.symbol, trade.side, trade.opened_ts, trade.tag):
+        feats = getattr(trade, "features", None)
+        for f in self._features(trade.symbol, trade.side, trade.opened_ts, trade.tag, feats):
             st = self.buckets.setdefault(f, Stat())
             st.n += 1
             st.sum_r += trade.r_multiple
         if persist and self.path:
             self._append(trade)
 
-    def edge(self, symbol: str, side: Side, ts: datetime, tag: str) -> float:
-        """Sample-shrunk average expectancy (R) across the setup's matching features."""
+    def edge(self, symbol: str, side: Side, ts: datetime, tag: str,
+             feats: dict | None = None) -> float:
+        """Sample-shrunk average expectancy (R) across the setup's matching features —
+        including its SMC/ICT/PB concepts and the current regime context."""
         vals = []
-        for f in self._features(symbol, side, ts, tag):
+        for f in self._features(symbol, side, ts, tag, feats):
             st = self.buckets.get(f)
             if st and st.n > 0:
                 trust = st.n / (st.n + self.shrink_k)     # 0..1, grows with sample size
@@ -105,6 +118,7 @@ class TradeMemory:
                 "symbol": trade.symbol, "side": trade.side.value,
                 "opened_ts": trade.opened_ts.isoformat() if trade.opened_ts else None,
                 "tag": trade.tag, "r": trade.r_multiple, "pnl": trade.pnl,
+                "features": getattr(trade, "features", {}) or {},
             }) + "\n")
 
     def load(self) -> None:
@@ -118,7 +132,7 @@ class TradeMemory:
             ts = datetime.fromisoformat(d["opened_ts"]) if d.get("opened_ts") else datetime.utcnow()
             side = Side(d["side"])
             self.count += 1
-            for f in self._features(d["symbol"], side, ts, d.get("tag", "")):
+            for f in self._features(d["symbol"], side, ts, d.get("tag", ""), d.get("features")):
                 st = self.buckets.setdefault(f, Stat())
                 st.n += 1
                 st.sum_r += d.get("r", 0.0)

@@ -112,7 +112,8 @@ def run_backtest(symbols: list[str], source_name: str = "synthetic",
 
             order = Order(symbol=sized.symbol, side=setup.side, qty=qty,
                           type=OrderType.MARKET, price=setup.entry, stop=setup.stop,
-                          targets=setup.targets, tag=f"{setup.confluence:.0%}")
+                          targets=setup.targets, tag=f"{setup.confluence:.0%}",
+                          features=setup.features)
             broker.submit_at(order, setup.entry, bar.ts)
             setups_this_session += 1
 

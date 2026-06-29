@@ -34,7 +34,8 @@ from .order_blocks import (flip_broken_blocks, order_block_at_formation,
                            retesting_block, retesting_breaker, update_block_states)
 from .pd_arrays import consequent_encroachment, detect_bpr, in_bpr
 from .sessions import SessionTracker
-from .structure import StructureState, detect_cisd, find_swings, premium_discount
+from .structure import (StructureState, detect_cisd, detect_rejection_block,
+                        find_swings, premium_discount)
 from .tjr import DailyPO3, current_killzone, detect_mss
 from .voids import nearest_unfilled_void, new_void, update_void_states
 
@@ -42,26 +43,31 @@ from .voids import nearest_unfilled_void, new_void, update_void_states
 # heavily and also gates entries; entry-zone quality stacks iFVG + order block +
 # breaker + OTE; a second HTF and liquidity void add higher-order confluence.
 WEIGHTS = {
-    "structure": 0.10,        # LTF BOS/CHOCH aligned
-    "htf_bias": 0.10,         # primary higher-timeframe bias aligned (top-down)
-    "htf2_bias": 0.05,        # second (slower) HTF agrees
-    "htf_fvg_nest": 0.05,     # LTF entry nests inside an HTF FVG (PD-array confluence)
-    "pd": 0.04,               # premium/discount of the dealing range
-    "sweep": 0.10,            # liquidity raid
-    "sweep_significant": 0.05,  # the raid took SIGNIFICANT liquidity (PDH/PDL/session)
-    "ifvg": 0.10,             # inverted FVG retest
-    "order_block": 0.05,      # fresh order block retest
-    "breaker": 0.03,          # breaker block retest
-    "ote": 0.05,              # optimal trade entry (fib retracement)
-    "bpr": 0.03,              # entry sits in a balanced price range
+    # PB Mechanical Model 2.0 core — the sequence (sweep → displacement-inversion →
+    # retest) and the price-action it acts on are weighted heaviest.
+    "mechanical_model": 0.08,  # the PB sequence fired IN ORDER
+    "structure": 0.08,        # LTF BOS/CHOCH aligned
+    "htf_bias": 0.08,         # primary higher-timeframe bias aligned (top-down)
+    "sweep": 0.08,            # liquidity raid
+    "ifvg": 0.08,             # inverted FVG retest
+    "htf2_bias": 0.04,        # second (slower) HTF agrees
+    "htf_fvg_nest": 0.04,     # LTF entry nests inside an HTF FVG (PD-array confluence)
+    "sweep_significant": 0.04,  # the raid took SIGNIFICANT liquidity (PDH/PDL/session)
+    "order_block": 0.04,      # fresh order block retest
+    "ote": 0.04,              # optimal trade entry (fib retracement)
     "cisd": 0.04,             # change in state of delivery confirmation
-    "displacement": 0.04,
+    "displacement": 0.04,     # aggressive displacement (PB)
     "mss": 0.04,              # TJR market structure shift
+    "pd": 0.03,               # premium/discount of the dealing range
+    "sponsored": 0.03,        # the FVG is sponsored (institutional volume) — PB
+    "breaker": 0.03,          # breaker block retest
+    "bpr": 0.03,              # entry sits in a balanced price range
+    "rejection": 0.03,        # rejection block (long-wick rejection) aligned
+    "opening_bias": 0.04,     # price vs true day open aligns
     "void": 0.02,             # unfilled liquidity void in trade direction
     "killzone": 0.02,
     "macro": 0.02,            # inside an ICT macro window
     "daily_bias": 0.03,       # TJR PO3 daily bias
-    "opening_bias": 0.04,     # price vs true day open aligns
 }
 
 
@@ -126,6 +132,7 @@ class PBModel:
         self.conditions: Optional[MarketConditions] = None
         self._recent_sweep = None
         self._sweep_age = 0
+        self._sweep_index = -1
 
     def _displacement(self) -> float:
         """How strongly the last bar moved vs recent average range (0..1 quality)."""
@@ -183,7 +190,7 @@ class PBModel:
         if nv is not None:
             self.voids.append(nv)
 
-        update_fvg_states(self.fvgs, bar)
+        update_fvg_states(self.fvgs, bar, i)
         update_block_states(self.blocks, bar)
         flip_broken_blocks(self.blocks, self.breakers, bar)
         update_void_states(self.voids, bar)
@@ -212,6 +219,7 @@ class PBModel:
         if sweep:
             self._recent_sweep = sweep
             self._sweep_age = 0
+            self._sweep_index = i      # for PB mechanical-model sequencing
             # Grade the sweep: did it take SIGNIFICANT liquidity (PDH/PDL/session/open)?
             tol = 6 * self.tick
             self._sweep_significant = self.sessions.is_significant(sweep.price, tol)
@@ -277,6 +285,20 @@ class PBModel:
             score += WEIGHTS["ifvg"]
             reasons.append(f"iFVG retest [{f.bottom:.2f}, {f.top:.2f}]")
 
+            # PB MECHANICAL MODEL: the iFVG must have inverted AFTER the sweep (sequence:
+            # sweep → aggressive displacement that inverts the FVG → this retest). Order
+            # matters — that's the whole PB secret, not just the ingredients present.
+            mechanical = (self._recent_sweep is not None and f.inverted_at >= self._sweep_index
+                          and self._sweep_index >= 0 and self._displacement() > 0.2)
+            if mechanical:
+                score += WEIGHTS["mechanical_model"]
+                reasons.append("PB mechanical model: sweep → displacement-inversion → retest")
+
+            # PB sponsored FVG: institutional volume created the gap.
+            if f.sponsored:
+                score += WEIGHTS["sponsored"]
+                reasons.append("sponsored FVG (institutional volume)")
+
             # Balanced Price Range: entry sits where bull/bear FVGs overlap (delivered both ways).
             if in_bpr(consequent_encroachment(f), self._bprs):
                 score += WEIGHTS["bpr"]
@@ -291,6 +313,11 @@ class PBModel:
             if detect_cisd(self.bars, trend):
                 score += WEIGHTS["cisd"]
                 reasons.append("CISD confirmation (delivery flipped)")
+
+            # PB rejection block: a long-wick rejection aligned with the trade.
+            if detect_rejection_block(self.bars, trend):
+                score += WEIGHTS["rejection"]
+                reasons.append("rejection block (wick rejection)")
 
             # HTF bias alignment (top-down confluence), primary + secondary timeframe.
             if self.htf_trend is not None and self.htf_trend == trend:
@@ -408,8 +435,30 @@ class PBModel:
             symbol=self.symbol, side=side, entry=round(entry, 2),
             stop=round(stop, 2), targets=[round(t, 2) for t in targets],
             ts=bar.ts, confluence=round(score, 3), reasons=reasons,
-            session=_session_of(bar.ts),
+            session=_session_of(bar.ts), features=self._features(reasons, bar),
         )
+
+    # Concept keywords -> stable feature tags the brain/memory learn from.
+    _CONCEPT_MAP = (
+        ("mechanical model", "mechanical"), ("sponsored FVG", "sponsored"),
+        ("significant liquidity", "sig_sweep"), ("nested in HTF", "htf_fvg"),
+        ("CISD", "cisd"), ("rejection block", "rejection"),
+        ("balanced price range", "bpr"), ("order block", "ob"),
+        ("breaker block", "breaker"), ("OTE zone", "ote"),
+        ("ICT macro", "macro"), ("killzone", "killzone"),
+        ("opening-price bias", "opening_bias"), ("PO3 daily bias", "po3"),
+    )
+
+    def _features(self, reasons: list[str], bar: Bar) -> dict:
+        text = " | ".join(reasons)
+        concepts = [tag for kw, tag in self._CONCEPT_MAP if kw in text]
+        regime = self.conditions.regime if self.conditions else "na"
+        return {
+            "concepts": concepts,
+            "regime": regime,
+            "session": _session_of(bar.ts),
+            "macro": current_macro(bar.ts) is not None,
+        }
 
 
 def _session_of(ts) -> str:

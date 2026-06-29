@@ -250,6 +250,47 @@ def _setup(symbol="ES", side=Side.LONG, conf=0.80, hour=10):
     return s
 
 
+def test_sponsored_fvg_volume():
+    from datetime import datetime, timedelta
+    from pb_trader.strategy.fvg import new_fvg
+    from pb_trader.models import Bar, Direction
+    t = datetime(2026, 6, 26, 9, 30)
+    bars = [Bar(t + timedelta(minutes=i), 100, 101, 99, 100, 100, "ES") for i in range(22)]
+    # Bull FVG on the last bar with a huge-volume displacement candle -> sponsored.
+    bars[-3] = Bar(bars[-3].ts, 100, 100.5, 99.5, 100, 100, "ES")
+    bars[-1] = Bar(bars[-1].ts, 104, 106, 101, 105, 1000, "ES")   # 10x volume
+    f = new_fvg(bars)
+    assert f is not None and f.direction is Direction.BULL and f.sponsored is True
+
+
+def test_rejection_block():
+    from datetime import datetime
+    from pb_trader.strategy.structure import detect_rejection_block
+    from pb_trader.models import Bar, Direction
+    t = datetime(2026, 6, 26, 9, 30)
+    # Candle with a long lower wick (rejection of lower prices) -> bullish rejection.
+    rej = Bar(t, 100, 100.2, 96, 100.1, 100, "ES")   # body 0.1, lower wick ~4
+    assert detect_rejection_block([rej], Direction.BULL) is True
+    assert detect_rejection_block([rej], Direction.BEAR) is False
+
+
+def test_memory_learns_per_concept_and_regime():
+    from pb_trader.memory import TradeMemory
+    from pb_trader.models import Trade
+    mem = TradeMemory(shrink_k=1.0)
+    t0 = datetime(2026, 6, 26, 10, 0)
+    feats_win = {"concepts": ["mechanical", "sponsored"], "regime": "trending"}
+    feats_lose = {"concepts": ["bpr"], "regime": "ranging"}
+    for _ in range(6):
+        w = Trade("ES", Side.LONG, 1, 5000, 5020, t0, t0, pnl=100, r_multiple=2.0, tag="80%", features=feats_win)
+        l = Trade("NQ", Side.SHORT, 1, 5000, 4990, t0, t0, pnl=-50, r_multiple=-1.0, tag="80%", features=feats_lose)
+        mem.record(w, persist=False); mem.record(l, persist=False)
+    # Edge for a mechanical+sponsored trending setup is positive; bpr-in-ranging negative.
+    e_good = mem.edge("ES", Side.LONG, t0, "80%", feats_win)
+    e_bad = mem.edge("NQ", Side.SHORT, t0, "80%", feats_lose)
+    assert e_good > 0 and e_bad < 0
+
+
 def test_ict_macro_windows():
     from datetime import datetime
     from pb_trader.strategy.macros import current_macro, in_macro

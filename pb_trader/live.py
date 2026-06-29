@@ -99,7 +99,8 @@ def run_live(symbols: list[str], mode: str = "paper", source_name: str = "synthe
 
         order = Order(symbol=sized.symbol, side=setup.side, qty=qty,
                       type=OrderType.MARKET, price=setup.entry, stop=setup.stop,
-                      targets=setup.targets, tag=f"{setup.confluence:.0%}")
+                      targets=setup.targets, tag=f"{setup.confluence:.0%}",
+                      features=setup.features)
         log_event("signal", setup)
         print(f"\n  >>> A+ SETUP  {setup.symbol} {setup.side.value.upper()} "
               f"@ {setup.entry}  SL {setup.stop}  TP {setup.targets}  "

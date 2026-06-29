@@ -70,6 +70,8 @@ class FVG:
     index: int
     filled: bool = False
     inverted: bool = False
+    inverted_at: int = -1      # bar index where it flipped (for mechanical sequencing)
+    sponsored: bool = False    # created by a high-volume displacement candle (PB)
 
     @property
     def mid(self) -> float:
@@ -172,6 +174,7 @@ class Setup:
     reasons: list[str] = field(default_factory=list)
     session: str = ""
     tag: str = ""                     # confluence bucket label, set at decision time
+    features: dict = field(default_factory=dict)   # concepts fired + context, for the brain
 
     @property
     def risk_points(self) -> float:
@@ -200,6 +203,7 @@ class Order:
     stop: Optional[float] = None
     targets: list[float] = field(default_factory=list)
     tag: str = ""
+    features: dict = field(default_factory=dict)
 
 
 @dataclass
@@ -215,6 +219,7 @@ class Position:
     init_qty: int = 0          # original size (for partial scale-outs)
     init_risk: float = 0.0     # entry-to-stop distance at open (for R math)
     scaled: bool = False       # partial taken + stop moved to breakeven
+    features: dict = field(default_factory=dict)
 
 
 @dataclass
@@ -234,3 +239,4 @@ class Trade:
     gross_pnl: float = 0.0
     commission: float = 0.0
     slippage_cost: float = 0.0
+    features: dict = field(default_factory=dict)

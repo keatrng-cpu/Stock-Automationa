@@ -41,13 +41,25 @@ retest and OTE (0.62–0.79 fib) → displacement → SMT picks ES vs NQ. TJR ov
 killzones, Power-of-Three (AMD) daily bias, Market Structure Shift, breaker blocks.
 Targets aim at the Draw on Liquidity (external range liquidity).
 
+## PB secrets (Mechanical Model 2.0 core)
+
+- **Mechanical sequence (enforced in order)**: liquidity sweep → *aggressive displacement
+  that inverts an FVG* → retest. Scoring requires the iFVG to have inverted AFTER the
+  sweep (`_sweep_index ≤ inverted_at`) with real displacement — the order is the edge,
+  not just the ingredients. Heavily weighted core. (`pb_model.WEIGHTS["mechanical_model"]`.)
+- **Sponsored FVGs**: gaps created by above-average-volume (institutional) displacement.
+- **Rejection blocks**: long-wick rejections aligned with the trade.
+- Targets draw to the next unfilled liquidity/void. Fresh levels only.
+
 ## Intelligence layer (the "brain")
 
 The model is *perception*; `brain.py` is *judgment*. On every A+ candidate the brain fuses:
 - **News** (`news.py`): blackout high-impact windows, caution around medium.
 - **Adaptive** (`adaptive.py`): cut size + raise the A+ bar after losing streaks/drawdown.
-- **Memory** (`memory.py`): nudge by how the setup's features (instrument/side/session/
-  confluence) have actually performed for you; veto setup types that keep losing.
+- **Memory** (`memory.py`): **aware of every concept** — it learns how each SMC/ICT/PB
+  concept (mechanical, sponsored, sig-sweep, HTF-FVG nest, CISD, BPR, rejection…) performs
+  AND how it performs in the current **regime** (`concept-in-regime` buckets), so it knows
+  what works and *when*. Nudges size by that edge; vetoes setup types that keep losing.
 It learns from every closed trade (persisted to `journal/memory.jsonl` in live). All
 adjustments are explainable — no black box. It never gets reckless (defensive-only).
 

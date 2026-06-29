@@ -66,9 +66,12 @@ class TradingBrain:
             reasons.append(f"defensive sizing ×{rmult:.2f} (dd {self.adaptive.drawdown:.0%})")
 
         # --- Memory edge (learned from your past trades) ---
-        edge = self.memory.edge(setup.symbol, setup.side, setup.ts, setup.tag or "")
+        # Aware of EVERYTHING: instrument/side/session/confluence AND which SMC/ICT/PB
+        # concepts fired AND the current regime — so it knows what works and WHEN.
+        edge = self.memory.edge(setup.symbol, setup.side, setup.ts, setup.tag or "",
+                                setup.features)
         if edge != 0.0:
-            reasons.append(f"memory edge {edge:+.2f}R for this setup type")
+            reasons.append(f"memory edge {edge:+.2f}R (concepts+regime context)")
         if edge <= self.edge_veto:
             return Decision(False, 0.0, threshold, edge,
                             reasons + ["memory: this setup type has lost for you — skip"])

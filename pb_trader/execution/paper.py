@@ -63,6 +63,7 @@ class PaperBroker:
             entry=entry, stop=order.stop, targets=list(order.targets),
             opened_ts=ts, tag=order.tag, init_qty=order.qty,
             init_risk=abs(entry - order.stop) if order.stop is not None else 0.0,
+            features=dict(order.features),
         )
         self.positions.append(pos)
         return pos
@@ -154,5 +155,5 @@ class PaperBroker:
             exit=round(filled_exit, 2), opened_ts=pos.opened_ts, closed_ts=bar.ts,
             pnl=round(pnl, 2), r_multiple=round(r, 2), reason=reason, tag=pos.tag,
             gross_pnl=round(gross_pnl, 2), commission=round(commission, 2),
-            slippage_cost=round(slippage_cost, 2),
+            slippage_cost=round(slippage_cost, 2), features=dict(pos.features),
         )
