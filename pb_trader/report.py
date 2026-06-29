@@ -116,16 +116,28 @@ def build_report(symbols, source_name="synthetic", bars=3000, session="morning",
         for r in setup.reasons:
             L.append(f"        - {r}")
 
+    # 4b. Scenario map — be PREPARED for multiple paths, trade only the one that confirms
+    L.append("\n  5) SCENARIO MAP (primary + alternates — pre-plan each branch)")
+    sm = models[best_sym]
+    price = sm.bars[-1].close
+    scen = sm.project_scenarios()
+    if scen:
+        L.append(f"     {best_sym} @ {price:.2f} — if/then tree by probability:")
+        for s in scen:
+            L.append("   " + s.line(price))
+    else:
+        L.append("     (insufficient history to project scenarios)")
+
     # 8. What the system has learned (persistent trade memory)
     from .memory import TradeMemory
     mem = TradeMemory(path="journal/memory.jsonl")
     if mem.count:
-        L.append("\n  5) WHAT THE SYSTEM HAS LEARNED (from your past trades)")
+        L.append("\n  6) WHAT THE SYSTEM HAS LEARNED (from your past trades)")
         for line in mem.summary(top=5).splitlines():
             L.append("   " + line)
 
     # 9. Goal progress
-    L.append("\n  6) GOAL PROGRESS")
+    L.append("\n  7) GOAL PROGRESS")
     for line in goals.render(settings.account_equity, risk_pct=settings.risk_pct).splitlines():
         L.append("   " + line)
 

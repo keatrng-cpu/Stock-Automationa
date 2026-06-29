@@ -499,14 +499,33 @@ class PBModel:
                 concepts.append(f"tf:{grade}:{tf}")
 
         regime = self.conditions.regime if self.conditions else "na"
+        volatility = self.conditions.volatility if self.conditions else "na"
         return {
             "concepts": concepts,
             "regime": regime,
+            "volatility": volatility,
             "session": _session_of(bar.ts),
             "macro": current_macro(bar.ts) is not None,
             "checklist": checklist,
             "timeframe": tf,
         }
+
+    def project_scenarios(self) -> list:
+        """Map the multiple market paths to be prepared for — primary + alternates — from
+        live state (price, significant liquidity, stacked top-down bias, regime/volatility).
+        Returns ranked Scenario objects; empty until there's enough history."""
+        from .scenarios import project_scenarios
+        if not self.bars:
+            return []
+        price = self.bars[-1].close
+        regime = self.conditions.regime if self.conditions else "na"
+        volatility = self.conditions.volatility if self.conditions else "na"
+        return project_scenarios(
+            price, self.sessions.significant_levels(),
+            htf_bias=self.htf_trend, htf2_bias=self.htf2_trend,
+            weekly_bias=self.sessions.weekly_pd_bias(price),
+            opening_bias=self.sessions.opening_bias(price),
+            regime=regime, volatility=volatility)
 
 
 def _session_of(ts) -> str:

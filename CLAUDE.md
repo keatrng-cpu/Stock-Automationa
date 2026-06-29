@@ -129,10 +129,28 @@ The model is *perception*; `brain.py` is *judgment*. On every A+ candidate the b
 - **Adaptive** (`adaptive.py`): cut size + raise the A+ bar after losing streaks/drawdown.
 - **Memory** (`memory.py`): **aware of every concept** — it learns how each SMC/ICT/PB
   concept (mechanical, sponsored, sig-sweep, HTF-FVG nest, CISD, BPR, rejection…) performs
-  AND how it performs in the current **regime** (`concept-in-regime` buckets), so it knows
-  what works and *when*. Nudges size by that edge; vetoes setup types that keep losing.
+  AND how it performs in the current **regime + volatility** (`concept-in-regime`,
+  `regime×volatility` buckets), so it knows what works and *when*. Nudges size by that
+  edge; vetoes setup types that keep losing.
+- **Recency-weighted (EWMA)** memory: every bucket decays prior weight by `recency_decay`
+  (~34-trade half-life) on each new sample, so recent results dominate and stale edges
+  fade — the brain adapts to the market it's in *now*, not months ago. (Non-stationarity.)
+- **Live market-condition gate**: the brain reads the current `regime×volatility` and, via
+  `memory.condition_edge`, gets pickier (raises the bar — defensive only) when that exact
+  environment has been hostile lately. Volatility is a first-class learned dimension.
 It learns from every closed trade (persisted to `journal/memory.jsonl` in live). All
 adjustments are explainable — no black box. It never gets reckless (defensive-only).
+
+## Scenario projection — prepared for multiple paths (`strategy/scenarios.py`)
+
+Elite traders map the **decision tree**, not a single prediction. `project_scenarios()`
+turns live context (price, significant liquidity, stacked top-down bias, regime/volatility)
+into a ranked set of if/then branches — **primary continuation + alternate reversal +
+range rotation** — each with a trigger, an invalidation, a draw-on-liquidity target, and a
+probability (from bias conviction + regime). The engine pre-plans every branch and trades
+only the one that confirms. `PBModel.project_scenarios()` pulls live state; the session
+report renders the map ("if price sweeps PDH and fails → short to PDL"). Pure/deterministic
+— every level named comes from real levels, never fabricated.
 
 ## Psychology
 

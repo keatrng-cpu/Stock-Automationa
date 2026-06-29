@@ -611,3 +611,85 @@ def test_risk_ceiling_caps_size():
     sized = position_size(s, equity=1_000, risk_pct=0.50)
     # 5% of $1000 = $50 budget; MES 10pt stop = $50/contract -> 1 contract, not 10.
     assert sized.qty == 1
+
+
+def test_memory_is_recency_weighted():
+    """Recent results should dominate stale ones (non-stationary adaptability)."""
+    from pb_trader.memory import TradeMemory
+    from pb_trader.models import Trade
+    mem = TradeMemory(shrink_k=0.0, recency_decay=0.8)
+    t0 = datetime(2026, 6, 26, 10, 0)
+    feats = {"concepts": ["mechanical"], "regime": "trending", "volatility": "normal"}
+    # A long history of losses...
+    for _ in range(20):
+        mem.record(Trade("ES", Side.LONG, 1, 5000, 4990, t0, t0, pnl=-50,
+                         r_multiple=-1.0, tag="80%", features=feats), persist=False)
+    # ...then a recent run of wins should flip the edge positive.
+    for _ in range(8):
+        mem.record(Trade("ES", Side.LONG, 1, 5000, 5020, t0, t0, pnl=100,
+                         r_multiple=2.0, tag="80%", features=feats), persist=False)
+    assert mem.edge("ES", Side.LONG, t0, "80%", feats) > 0
+
+
+def test_memory_condition_edge_tracks_environment():
+    from pb_trader.memory import TradeMemory
+    from pb_trader.models import Trade
+    mem = TradeMemory(shrink_k=1.0)
+    t0 = datetime(2026, 6, 26, 10, 0)
+    good = {"concepts": ["mechanical"], "regime": "trending", "volatility": "normal"}
+    bad = {"concepts": ["bpr"], "regime": "ranging", "volatility": "high"}
+    for _ in range(6):
+        mem.record(Trade("ES", Side.LONG, 1, 5000, 5020, t0, t0, pnl=100,
+                         r_multiple=2.0, tag="80%", features=good), persist=False)
+        mem.record(Trade("NQ", Side.SHORT, 1, 5000, 5010, t0, t0, pnl=-50,
+                         r_multiple=-1.0, tag="80%", features=bad), persist=False)
+    assert mem.condition_edge("trending", "normal") > 0
+    assert mem.condition_edge("ranging", "high") < 0
+
+
+def test_brain_gets_pickier_in_hostile_conditions():
+    from pb_trader.brain import TradingBrain
+    from pb_trader.memory import TradeMemory
+    from pb_trader.models import Trade
+    mem = TradeMemory(shrink_k=1.0)
+    t0 = datetime(2026, 6, 26, 10, 0)
+    bad = {"concepts": ["bpr"], "regime": "ranging", "volatility": "high"}
+    for _ in range(8):
+        mem.record(Trade("ES", Side.LONG, 1, 5000, 4990, t0, t0, pnl=-50,
+                         r_multiple=-1.0, tag="80%", features=bad), persist=False)
+    brain = TradingBrain(base_threshold=0.75, memory=mem)
+    s = _setup("ES", Side.LONG, 0.80, hour=10)
+    s.features = bad
+    dec = brain.decide(s, equity=1000)
+    assert dec.threshold > 0.75     # hostile regime/vol raises the A+ bar
+
+
+def test_scenario_projection_branches():
+    from pb_trader.strategy.scenarios import project_scenarios
+    from pb_trader.models import Direction
+    levels = [("PDH", 5050), ("PDL", 4950), ("NYOpen", 5010), ("AsiaL", 4980)]
+    scen = project_scenarios(5000, levels, htf_bias=Direction.BULL,
+                             htf2_bias=Direction.BULL, regime="trending",
+                             volatility="normal")
+    assert scen, "should project at least one scenario"
+    # Probabilities normalize to ~1.0 and are sorted descending.
+    assert abs(sum(s.probability for s in scen) - 1.0) < 1e-9
+    assert scen == sorted(scen, key=lambda s: s.probability, reverse=True)
+    # With a stacked bullish trend, the top branch is the bullish continuation.
+    assert scen[0].name == "Bullish continuation"
+    assert scen[0].bias == Direction.BULL
+    # It draws toward buy-side liquidity above price.
+    assert scen[0].target is not None and scen[0].target > 5000
+
+
+def test_scenario_range_dominates_when_no_trend():
+    from pb_trader.strategy.scenarios import project_scenarios
+    levels = [("PDH", 5050), ("PDL", 4950)]
+    scen = project_scenarios(5000, levels, htf_bias=None, regime="ranging",
+                             volatility="normal")
+    names = [s.name for s in scen]
+    assert "Range rotation" in names
+    # Ranging regime should lift the rotation branch above the reversal one.
+    rot = next(s for s in scen if s.name == "Range rotation")
+    rev = next(s for s in scen if s.name.endswith("reversal"))
+    assert rot.probability >= rev.probability

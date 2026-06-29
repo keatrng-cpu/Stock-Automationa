@@ -39,6 +39,9 @@ class TradingBrain:
     # How strongly memory edge nudges size: size *= (1 + edge_gain * edge), clamped.
     edge_gain: float = 0.5
     edge_veto: float = -0.5        # if memory edge is worse than this, stand aside
+    # Market-condition gate: how hard a hostile regime/volatility raises the A+ bar.
+    condition_gain: float = 0.10
+    max_condition_bump: float = 0.05
 
     def decide(self, setup: Setup, equity: float) -> Decision:
         reasons: list[str] = []
@@ -65,9 +68,22 @@ class TradingBrain:
             size_mult *= rmult
             reasons.append(f"defensive sizing ×{rmult:.2f} (dd {self.adaptive.drawdown:.0%})")
 
+        # --- Market-condition adaptability ---
+        # Read the LIVE environment (regime + volatility) and consult how that exact
+        # condition has treated us lately. Defensive-only: a hostile environment raises
+        # the bar (get pickier) — it never loosens it.
+        feats = setup.features or {}
+        regime = feats.get("regime", "na")
+        vol = feats.get("volatility", "na")
+        cond = self.memory.condition_edge(regime, vol)
+        if cond < 0:
+            cbump = min(self.max_condition_bump, -self.condition_gain * cond)
+            threshold += cbump
+            reasons.append(f"hostile {regime}/{vol} env ({cond:+.2f}R) — bar +{cbump:.2f}")
+
         # --- Memory edge (learned from your past trades) ---
         # Aware of EVERYTHING: instrument/side/session/confluence AND which SMC/ICT/PB
-        # concepts fired AND the current regime — so it knows what works and WHEN.
+        # concepts fired AND the current regime/volatility — so it knows what works and WHEN.
         edge = self.memory.edge(setup.symbol, setup.side, setup.ts, setup.tag or "",
                                 setup.features)
         if edge != 0.0:
