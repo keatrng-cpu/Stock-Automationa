@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pb-trader"
+version = "0.1.0"
+description = "PB Mechanical Model 2.0 day-trading automation for ES/NQ futures"
+requires-python = ">=3.10"
+dependencies = []
+
+[project.optional-dependencies]
+# Real data/broker connectors are optional so the engine runs offline out of the box.
+databento = ["databento>=0.34"]
+tradovate = ["requests>=2.31", "websocket-client>=1.7"]
+analysis = ["pandas>=2.0", "numpy>=1.24"]
+dev = ["pytest>=8.0"]
+
+[tool.setuptools.packages.find]
+include = ["pb_trader*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
