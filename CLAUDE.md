@@ -152,6 +152,21 @@ only the one that confirms. `PBModel.project_scenarios()` pulls live state; the 
 report renders the map ("if price sweeps PDH and fails → short to PDL"). Pure/deterministic
 — every level named comes from real levels, never fabricated.
 
+## Cadence + daily circuit breaker (`governor.py`)
+
+`SessionGovernor` keeps the engine **active but disciplined**, and it **never forces a trade**:
+- **Cadence target (a ceiling, not a quota)**: aim for ~**3 strong** or ~**5 medium** A+ trades
+  per week. "Strong" = confluence ≥ `strong_threshold` (0.80); "medium" = a still-valid A+ at or
+  above the documented **0.75 floor**. Strong is preferred; mediums are merely *permitted* so a
+  quiet stretch isn't dark for a month. Weekly caps prevent overtrading; nothing below 0.75 ever
+  trades. If no genuine A+ prints, it takes none — the bar is never lowered to hit a number.
+- **Daily-loss circuit breaker**: if the account gives back ≥ `daily_loss_limit_pct` (6%) of the
+  day's starting equity, halt **new** entries until the next session (open trades still manage
+  out). Standard prop discipline — protect the day. Tripped-day count surfaces in the ledger.
+
+Knobs: `PB_STRONG_THRESHOLD`, `PB_WEEKLY_STRONG_TARGET`, `PB_WEEKLY_MEDIUM_TARGET`,
+`PB_DAILY_LOSS_LIMIT_PCT`. The per-session hard cap stays `PB_MAX_SETUPS_PER_SESSION` (2/day).
+
 ## Multi-timeframe conjunction (`mtf.py`)
 
 Price is fractal — a 1m long into a 15m downtrend is a trap. `MultiTimeframeModel` wraps the

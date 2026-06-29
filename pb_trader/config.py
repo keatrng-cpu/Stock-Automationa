@@ -54,8 +54,16 @@ class Settings:
     # Reward:risk band for targets (1:1 .. 1:3).
     min_rr: float = _f("PB_MIN_RR", 1.0)
     tp_max_r: float = _f("PB_TP_MAX_R", 3.0)
-    # A+ gate: default raised to 0.78 (fewer, higher-conviction setups); floor 0.75.
-    confluence_threshold: float = max(_f("PB_CONFLUENCE_THRESHOLD", 0.78), 0.75)
+    # A+ gate: hard floor 0.75 (documented non-negotiable). The model SURFACES every A+ at
+    # or above this; the governor then classifies strong (≥ strong) vs medium and applies a
+    # weekly cadence CAP. The floor is never lowered to force trades — quality first.
+    confluence_threshold: float = max(_f("PB_CONFLUENCE_THRESHOLD", 0.75), 0.75)
+    strong_threshold: float = max(_f("PB_STRONG_THRESHOLD", 0.80), 0.75)   # high-conviction A+
+    # Cadence TARGET (a ceiling, not a quota): aim for ~3 strong OR ~5 medium A+ trades/week.
+    weekly_strong_target: int = _i("PB_WEEKLY_STRONG_TARGET", 3)
+    weekly_medium_target: int = _i("PB_WEEKLY_MEDIUM_TARGET", 5)
+    # Daily-loss circuit breaker: halt NEW entries after this much daily drawdown.
+    daily_loss_limit_pct: float = _f("PB_DAILY_LOSS_LIMIT_PCT", 0.06)
     # Realistic cost model: per-side slippage in ticks (commission is per-contract in CONTRACTS).
     slippage_ticks: float = _f("PB_SLIPPAGE_TICKS", 1.0)
     # Trade management: bank a partial + move to breakeven at scale_at_r, runner to target.

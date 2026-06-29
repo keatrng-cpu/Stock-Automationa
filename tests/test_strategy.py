@@ -788,3 +788,46 @@ def test_stop_guard_disabled_allows_full_gap():
     gap = Bar(t0, 4900, 4905, 4880, 4890, 100, "ES")
     trades = brk.on_bar(gap)
     assert trades and trades[0].r_multiple < -5    # honest: full gap loss when guard is off
+
+
+def test_governor_cadence_is_a_ceiling_not_a_forcer():
+    from pb_trader.governor import SessionGovernor
+    g = SessionGovernor(strong_threshold=0.80, medium_threshold=0.75,
+                        weekly_strong_target=3, weekly_medium_target=5, daily_cap=99)
+    g.roll(datetime(2026, 6, 22, 10, 0), 20000)   # Monday
+    # Below the floor is NEVER allowed — quality first, no forcing.
+    ok, why = g.can_enter(0.70, 20000)
+    assert ok is False and "floor" in why
+    # Three strong A+ fill the weekly strong budget, then strong is capped.
+    for _ in range(3):
+        assert g.can_enter(0.82, 20000)[0] is True
+        g.record_entry(0.82)
+    assert g.can_enter(0.82, 20000)[0] is False    # cadence met — won't overtrade
+    # New week resets the budget.
+    g.roll(datetime(2026, 6, 29, 10, 0), 20000)
+    assert g.can_enter(0.82, 20000)[0] is True
+
+
+def test_governor_daily_circuit_breaker_halts_entries():
+    from pb_trader.governor import SessionGovernor
+    g = SessionGovernor(daily_loss_limit_pct=0.06, daily_cap=99)
+    g.roll(datetime(2026, 6, 22, 9, 30), 20000)
+    assert g.can_enter(0.82, 20000)[0] is True      # flat day — fine
+    # Down 7% on the day → breaker trips, no new entries until tomorrow.
+    ok, why = g.can_enter(0.82, 18600)
+    assert ok is False and "circuit breaker" in why
+    assert g.halted_today is True
+    # Even if equity recovers intraday, the day stays halted (discipline).
+    assert g.can_enter(0.90, 20000)[0] is False
+    # Next day clears the halt.
+    g.roll(datetime(2026, 6, 23, 9, 30), 20000)
+    assert g.can_enter(0.82, 20000)[0] is True
+
+
+def test_governor_medium_tier_allowed_within_floor():
+    from pb_trader.governor import SessionGovernor
+    g = SessionGovernor(strong_threshold=0.80, medium_threshold=0.75, daily_cap=99)
+    g.roll(datetime(2026, 6, 22, 10, 0), 20000)
+    # A 0.77 setup is a valid MEDIUM A+ (at/above the 0.75 floor) — permitted, not forced.
+    assert g.classify(0.77) == "medium"
+    assert g.can_enter(0.77, 20000)[0] is True

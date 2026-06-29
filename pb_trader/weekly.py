@@ -74,6 +74,9 @@ def run(symbols, weeks=12, source="neutral", timeframe=None, profile=None, mtf=F
         for k, v in rows[:4] + rows[-4:]:
             print(f"     {k:<20} n={v.n:<4} exp={v.expectancy:+.2f}R")
     print(f"  Final adaptive state: {brain.adaptive.state()}")
+    avg_per_wk = m.round_trips / weeks if weeks else 0.0
+    print(f"  Cadence: {m.round_trips} trades over {weeks} wks ({avg_per_wk:.1f}/wk; "
+          f"target ≤3 strong or ≤5 medium) | daily breaker tripped {r.halt_days}× (no forcing)")
     if brain.journal.lessons:
         print("\n  Loss journal — what the brain learned from its mistakes:")
         for line in brain.journal.summary(top=5).splitlines()[1:]:

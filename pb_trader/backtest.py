@@ -31,6 +31,7 @@ class BacktestResult:
     commission: float = 0.0
     slippage: float = 0.0
     checkpoints: list = field(default_factory=list)   # periodic snapshots (e.g. weekly)
+    halt_days: int = 0                                 # days the daily circuit breaker tripped
 
 
 def load_series(symbols, source_name="synthetic", bars=5000, start=None, end=None,
@@ -93,7 +94,14 @@ def run_backtest(symbols: list[str], source_name: str = "synthetic",
                          manage=settings.trade_mgmt, scale_at_r=settings.scale_at_r,
                          scale_frac=settings.scale_frac,
                          max_stop_slippage_r=settings.max_stop_slippage_r)
-    setups_this_session = 0
+    from .governor import SessionGovernor
+    governor = SessionGovernor(
+        strong_threshold=settings.strong_threshold,
+        medium_threshold=settings.confluence_threshold,
+        weekly_strong_target=settings.weekly_strong_target,
+        weekly_medium_target=settings.weekly_medium_target,
+        daily_cap=settings.max_setups_per_session,
+        daily_loss_limit_pct=settings.daily_loss_limit_pct)
     last_session = None
     # Pending LIMIT orders: a signal at bar i places a limit at setup.entry that only
     # fills if price RETESTS it on a LATER bar (no look-ahead), expiring after a window.
@@ -117,10 +125,7 @@ def run_backtest(symbols: list[str], source_name: str = "synthetic",
             brain.tick()                        # per-bar heartbeat (anti-deadlock thaw)
         for s in symbols:
             bar = series[s][i]
-            sess = bar.ts.date()
-            if sess != last_session:
-                last_session = sess
-                setups_this_session = 0
+            governor.roll(bar.ts, broker.equity)   # day/week rollover + breaker reset
 
             for trade in broker.on_bar(bar):    # process exits; brain learns from closes
                 if brain:
@@ -139,9 +144,14 @@ def run_backtest(symbols: list[str], source_name: str = "synthetic",
             pending[s] = still
 
             setup = models[s].on_bar(bar)
-            if setup is None or setups_this_session >= settings.max_setups_per_session:
+            if setup is None:
                 continue
             setup.tag = f"{setup.confluence:.0%}"
+            # Cadence + daily circuit breaker (a CEILING, never a forcer): blocks new entries
+            # when halted for the day or the weekly cadence is already met. Quality unchanged.
+            allowed, _gov_reason = governor.can_enter(setup.confluence, broker.equity)
+            if not allowed:
+                continue
 
             other = [o for o in symbols if o != s]
             if other:
@@ -171,12 +181,12 @@ def run_backtest(symbols: list[str], source_name: str = "synthetic",
                           targets=setup.targets, tag=f"{setup.confluence:.0%}",
                           features=setup.features)
             pending[s].append({"order": order, "expiry": i + RETEST_WINDOW})
-            setups_this_session += 1
+            governor.record_entry(setup.confluence)   # count toward the weekly cadence
 
     metrics = compute_metrics(broker.trades, broker.start_equity)
     result = BacktestResult(metrics, broker.trades, broker.start_equity,
                             broker.equity, broker.total_commission, broker.total_slippage,
-                            checkpoints=checkpoints)
+                            checkpoints=checkpoints, halt_days=governor.halt_day_count)
 
     if equity_csv:
         _write_equity_csv(metrics.equity_curve, equity_csv)
