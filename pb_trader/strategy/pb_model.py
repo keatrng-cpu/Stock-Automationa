@@ -448,7 +448,8 @@ class PBModel:
         ("ICT macro", "macro"), ("killzone", "killzone"),
         ("opening-price bias", "opening_bias"), ("PO3 daily bias", "po3"),
         ("propulsion block", "propulsion"), ("vacuum block", "vacuum"),
-        ("weekly", "weekly_pd"),
+        ("weekly", "weekly_pd"), ("MSS confirms", "mss"),
+        ("in discount", "pd"), ("in premium", "pd"),
     )
 
     def _features(self, reasons: list[str], bar: Bar) -> dict:
@@ -459,6 +460,11 @@ class PBModel:
         # are present the brain tags it "blake" so memory learns Blake-grade setups apart.
         if "mechanical" in concepts and "sig_sweep" in concepts and "htf_fvg" in concepts:
             concepts.append("blake")
+        # PB Patty SWING / PDI grade: HTF value-gap (PD-array) rejection + LTF structure
+        # shift (MSS) + premium/discount — the swing signature. Tagged so the brain learns
+        # Patty-grade swing setups apart from Blake-grade intraday ones.
+        if "htf_fvg" in concepts and "mss" in concepts and "pd" in concepts:
+            concepts.append("patty")
         regime = self.conditions.regime if self.conditions else "na"
         return {
             "concepts": concepts,

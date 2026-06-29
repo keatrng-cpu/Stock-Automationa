@@ -57,8 +57,17 @@ Source: pbtrading.io / PB Blake YouTube. The engine's `blake` profile and the br
 8. **Risk/targets**: same % per trade; **break-even after 1:1**; internal target = unfilled
    LTF FVG; **runner to external significant liquidity**. Claimed ~70–80% win, R:R ~1:1–1.5.
 
-> PB Patrick/PJ and PB Patty have no public playbook — their profiles are interpretations
-> pending real specifics. Do not present them as verified.
+## PB Patty — the "Patty Swing" / PDI model (partially documented)
+
+A **swing** variant (vs Blake's intraday mech model), focused on **NQ**:
+- Higher-timeframe focus: reject HTF key levels — **1h/4h/daily value gaps + order blocks**.
+- Setup fires where **liquidity rejection + period rejection align** (premium/discount).
+- Entry on **LTF market-structure shift (MSS)**; **avoid against the trend / SMT**.
+- Larger swing targets. Engine `patty` profile: HTF 60m/240m, tp 1.5–4R, HTF/PD/MSS emphasis.
+- Brain `patty`-grade tag = HTF-FVG rejection + MSS + premium/discount.
+
+> PB Patrick/PJ still has no public playbook — that profile remains an interpretation.
+> Remaining Patty/PDI specifics (from the paid mentorship) should be confirmed, not assumed.
 
 ## PB secrets (Mechanical Model 2.0 core)
 

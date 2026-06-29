@@ -80,13 +80,19 @@ PROFILES = {
         emphasis={"mechanical_model": 1.4, "htf_bias": 1.4, "htf2_bias": 1.3,
                   "htf_fvg_nest": 1.3, "weekly_pd": 1.3, "daily_bias": 1.3},
         note="INTERPRETATION (co-founder; shares the mech model). Top-down lean — confirm."),
-    # PB Patty — NO distinct public info found. INTERPRETATION only: precision OTE/CISD
-    # scalp lean with tighter targets. Needs your input (likely paid-mentorship content).
+    # PB Patty SWING / "PDI model" — PARTIALLY DOCUMENTED (PB Trading TikTok/YT): a swing
+    # variant on higher timeframes — reject HTF key levels (1h/4h/daily value gaps + order
+    # blocks), premium/discount, where LIQUIDITY rejection + PERIOD rejection align; LTF
+    # structure shift (MSS) for entry; avoid against trend / SMT. NQ focus, larger targets.
     "patty": TraderProfile(
-        "PB Patty", threshold=0.78, entry_mode="ce", tp_min_r=1.0, tp_max_r=1.5,
-        emphasis={"mechanical_model": 1.3, "ote": 1.5, "cisd": 1.4, "breaker": 1.3,
-                  "rejection": 1.3, "macro": 1.3},
-        note="INTERPRETATION ONLY — no public playbook found. Precision/OTE scalp lean. Confirm."),
+        "PB Patty (Swing/PDI)", threshold=0.78, entry_mode="ce",
+        tp_min_r=1.5, tp_max_r=4.0, htf_minutes=60, htf2_minutes=240,
+        emphasis={"htf_bias": 1.5, "htf2_bias": 1.5, "htf_fvg_nest": 1.6, "pd": 1.5,
+                  "order_block": 1.4, "mss": 1.5, "weekly_pd": 1.4, "rejection": 1.4,
+                  "sweep_significant": 1.3},
+        note="Swing 'PDI' model (partial-doc): HTF PD arrays (1h/4h/daily FVG+OB) rejection "
+             "+ liquidity sweep + LTF MSS entry; premium/discount; avoid vs trend/SMT; NQ, "
+             "larger swing targets. Refine remaining specifics from the mentorship."),
     "default": TraderProfile(
         "Balanced", threshold=0.78, note="The full balanced 26-component stack."),
 }
