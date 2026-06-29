@@ -250,6 +250,39 @@ def _setup(symbol="ES", side=Side.LONG, conf=0.80, hour=10):
     return s
 
 
+def test_ict_macro_windows():
+    from datetime import datetime
+    from pb_trader.strategy.macros import current_macro, in_macro
+    assert in_macro(datetime(2026, 6, 26, 10, 0))     # 09:50-10:10 silver bullet
+    assert current_macro(datetime(2026, 6, 26, 15, 30)) is not None  # PM macro
+    assert not in_macro(datetime(2026, 6, 26, 12, 45))
+
+
+def test_cisd_detection():
+    from datetime import datetime, timedelta
+    from pb_trader.strategy.structure import detect_cisd
+    from pb_trader.models import Bar, Direction
+    t = datetime(2026, 6, 26, 9, 30)
+    def b(o, c):
+        nonlocal t
+        bar = Bar(t, o, max(o, c) + 0.5, min(o, c) - 0.5, c, 10, "ES"); t += timedelta(minutes=1)
+        return bar
+    # up, then a down run (open 105 first down candle), then close back above 105 -> bullish CISD
+    bars = [b(100, 101), b(101, 102), b(105, 103), b(103, 101), b(101, 106)]
+    assert detect_cisd(bars, Direction.BULL) is True
+    assert detect_cisd(bars, Direction.BEAR) is False
+
+
+def test_htf_fvg_nesting():
+    from pb_trader.strategy.htf import in_htf_fvg
+    from pb_trader.models import Direction, FVG
+    from datetime import datetime
+    fvgs = [FVG(Direction.BULL, top=105, bottom=100, ts=datetime(2026, 6, 26), index=1)]
+    assert in_htf_fvg(102, fvgs, Direction.BULL) is True
+    assert in_htf_fvg(102, fvgs, Direction.BEAR) is False   # wrong direction
+    assert in_htf_fvg(110, fvgs, Direction.BULL) is False   # outside
+
+
 def test_session_tracker_pdh_and_opening_bias():
     from datetime import datetime, timedelta
     from pb_trader.strategy.sessions import SessionTracker

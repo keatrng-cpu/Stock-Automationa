@@ -79,6 +79,41 @@ class StructureState:
         return event
 
 
+def detect_cisd(bars: list[Bar], direction: Direction, lookback: int = 12) -> bool:
+    """Change in State of Delivery: price closes back through the open of the most
+    recent opposite-direction candle run — the moment delivery flips.
+
+    Bullish CISD: after a down-run, the latest close exceeds the OPEN of the first
+    down candle of that run (the down sequence has been reclaimed). Bearish is the
+    mirror. A precise confirmation that the algo has switched sides.
+    """
+    if len(bars) < 3:
+        return False
+    last = bars[-1]
+    window = bars[-lookback:]
+    if direction is Direction.BULL:
+        # Find the most recent contiguous run of down candles ending before `last`.
+        i = len(window) - 2
+        while i >= 0 and window[i].close >= window[i].open:
+            i -= 1
+        if i < 0:
+            return False
+        run_start = i
+        while run_start - 1 >= 0 and window[run_start - 1].close < window[run_start - 1].open:
+            run_start -= 1
+        return last.close > window[run_start].open
+    else:
+        i = len(window) - 2
+        while i >= 0 and window[i].close <= window[i].open:
+            i -= 1
+        if i < 0:
+            return False
+        run_start = i
+        while run_start - 1 >= 0 and window[run_start - 1].close > window[run_start - 1].open:
+            run_start -= 1
+        return last.close < window[run_start].open
+
+
 def premium_discount(bars: list[Bar], lookback: int = 50) -> tuple[float, float, float]:
     """Return (low, equilibrium, high) of the recent dealing range.
 

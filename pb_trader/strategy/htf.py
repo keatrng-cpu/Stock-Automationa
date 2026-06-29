@@ -43,6 +43,23 @@ def resample(bars: list[Bar], minutes: int) -> list[Bar]:
     return out
 
 
+def htf_fvgs(bars: list[Bar], minutes: int = 15):
+    """Fresh fair value gaps on the higher timeframe (PD arrays the LTF nests inside)."""
+    from .fvg import detect_fvgs, fresh_fvgs
+    htf = resample(bars, minutes)
+    if len(htf) < 3:
+        return []
+    return fresh_fvgs(detect_fvgs(htf))
+
+
+def in_htf_fvg(price: float, htf_fvg_list, direction: Direction) -> bool:
+    """True if `price` sits inside a higher-timeframe FVG aligned with the trade."""
+    for f in htf_fvg_list:
+        if f.direction is direction and f.bottom <= price <= f.top:
+            return True
+    return False
+
+
 def htf_bias(bars: list[Bar], minutes: int = 15, swing_k: int = 2) -> Optional[Direction]:
     """Resample to `minutes` and return the prevailing HTF structural trend (or None)."""
     htf = resample(bars, minutes)

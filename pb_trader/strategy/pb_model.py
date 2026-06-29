@@ -26,14 +26,15 @@ from ..models import CONTRACTS, Bar, Direction, Setup, Side
 from .conditions import MarketConditions, NewsCalendar, assess_conditions
 from .fib import in_ote
 from .fvg import active_ifvgs, new_fvg, update_fvg_states
-from .htf import _bucket, htf_bias
+from .htf import _bucket, htf_bias, htf_fvgs, in_htf_fvg
+from .macros import current_macro
 from .liquidity import build_pools, detect_sweep, next_liquidity
 from .liquidity_draw import draw_on_liquidity
 from .order_blocks import (flip_broken_blocks, order_block_at_formation,
                            retesting_block, retesting_breaker, update_block_states)
 from .pd_arrays import consequent_encroachment, detect_bpr, in_bpr
 from .sessions import SessionTracker
-from .structure import StructureState, find_swings, premium_discount
+from .structure import StructureState, detect_cisd, find_swings, premium_discount
 from .tjr import DailyPO3, current_killzone, detect_mss
 from .voids import nearest_unfilled_void, new_void, update_void_states
 
@@ -41,23 +42,26 @@ from .voids import nearest_unfilled_void, new_void, update_void_states
 # heavily and also gates entries; entry-zone quality stacks iFVG + order block +
 # breaker + OTE; a second HTF and liquidity void add higher-order confluence.
 WEIGHTS = {
-    "structure": 0.11,        # LTF BOS/CHOCH aligned
-    "htf_bias": 0.11,         # primary higher-timeframe bias aligned (top-down)
-    "htf2_bias": 0.06,        # second (slower) HTF agrees
-    "pd": 0.05,               # premium/discount of the dealing range
-    "sweep": 0.11,            # liquidity raid
+    "structure": 0.10,        # LTF BOS/CHOCH aligned
+    "htf_bias": 0.10,         # primary higher-timeframe bias aligned (top-down)
+    "htf2_bias": 0.05,        # second (slower) HTF agrees
+    "htf_fvg_nest": 0.05,     # LTF entry nests inside an HTF FVG (PD-array confluence)
+    "pd": 0.04,               # premium/discount of the dealing range
+    "sweep": 0.10,            # liquidity raid
     "sweep_significant": 0.05,  # the raid took SIGNIFICANT liquidity (PDH/PDL/session)
-    "ifvg": 0.11,             # inverted FVG retest
-    "order_block": 0.06,      # fresh order block retest
-    "breaker": 0.04,          # breaker block retest
-    "ote": 0.06,              # optimal trade entry (fib retracement)
-    "bpr": 0.04,              # entry sits in a balanced price range
-    "displacement": 0.05,
-    "mss": 0.05,              # TJR market structure shift
+    "ifvg": 0.10,             # inverted FVG retest
+    "order_block": 0.05,      # fresh order block retest
+    "breaker": 0.03,          # breaker block retest
+    "ote": 0.05,              # optimal trade entry (fib retracement)
+    "bpr": 0.03,              # entry sits in a balanced price range
+    "cisd": 0.04,             # change in state of delivery confirmation
+    "displacement": 0.04,
+    "mss": 0.04,              # TJR market structure shift
     "void": 0.02,             # unfilled liquidity void in trade direction
     "killzone": 0.02,
+    "macro": 0.02,            # inside an ICT macro window
     "daily_bias": 0.03,       # TJR PO3 daily bias
-    "opening_bias": 0.03,     # price vs true day open aligns
+    "opening_bias": 0.04,     # price vs true day open aligns
 }
 
 
@@ -113,6 +117,7 @@ class PBModel:
         self.voids: list = []
         self.htf_trend: Optional[Direction] = None
         self.htf2_trend: Optional[Direction] = None
+        self._htf_fvgs: list = []
         self._htf_bucket = None
         self._htf2_bucket = None
         self._range_high = None
@@ -160,6 +165,7 @@ class PBModel:
         if b1 != self._htf_bucket:
             self._htf_bucket = b1
             self.htf_trend = htf_bias(self.bars, self.htf_minutes, self.swing_k)
+            self._htf_fvgs = htf_fvgs(self.bars, self.htf_minutes)
         b2 = _bucket(bar.ts, self.htf2_minutes)
         if b2 != self._htf2_bucket:
             self._htf2_bucket = b2
@@ -276,6 +282,16 @@ class PBModel:
                 score += WEIGHTS["bpr"]
                 reasons.append("entry in balanced price range (BPR)")
 
+            # HTF-FVG nesting: the LTF entry sits inside a higher-timeframe FVG (PD array).
+            if in_htf_fvg(consequent_encroachment(f), self._htf_fvgs, trend):
+                score += WEIGHTS["htf_fvg_nest"]
+                reasons.append(f"nested in HTF({self.htf_minutes}m) FVG")
+
+            # CISD: change in state of delivery confirms the flip in the trade direction.
+            if detect_cisd(self.bars, trend):
+                score += WEIGHTS["cisd"]
+                reasons.append("CISD confirmation (delivery flipped)")
+
             # HTF bias alignment (top-down confluence), primary + secondary timeframe.
             if self.htf_trend is not None and self.htf_trend == trend:
                 score += WEIGHTS["htf_bias"]
@@ -324,6 +340,12 @@ class PBModel:
             if kz is not None:
                 score += WEIGHTS["killzone"]
                 reasons.append(f"killzone: {kz}")
+
+            # ICT macro: inside a ~20-min algo window.
+            mac = current_macro(bar.ts)
+            if mac is not None:
+                score += WEIGHTS["macro"]
+                reasons.append(f"ICT macro: {mac}")
 
             # TJR: PO3 daily bias (from the manipulation/judas sweep) agrees.
             if self.po3.bias_aligns(trend):
