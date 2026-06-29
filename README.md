@@ -60,7 +60,12 @@ You should see trades, an equity curve summary, win rate, expectancy, and max dr
 3. **Tradovate** (execution): create a Tradovate account (start with the **demo/sim** environment),
    request API access, and fill `TRADOVATE_*` vars. Keep `TRADOVATE_ENV=demo` until you have
    paper-tested.
-4. Backtest on real history:
+4. **Verify the wiring** (authenticates + does a tiny real call, prints PASS/FAIL):
+   ```bash
+   pip install -e ".[databento,tradovate]"
+   python -m pb_trader.connect all
+   ```
+5. Backtest on real history:
    ```bash
    python -m pb_trader.backtest --source databento --symbols ES NQ --start 2026-01-01 --end 2026-06-26
    ```

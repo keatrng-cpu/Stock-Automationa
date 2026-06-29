@@ -46,15 +46,16 @@ class DatabentoSource:
             start=start,
             end=end,
         )
+        # to_df() returns float prices (pretty_px) and a UTC Timestamp index —
+        # the robust, version-stable way to read OHLCV. Databento bundles pandas.
+        df = data.to_df()
         out: list[Bar] = []
-        for rec in data:
-            # Databento prices are fixed-point (1e-9). The DataFrame path is simpler if
-            # pandas is installed; here we read the record stream directly.
-            px = 1e-9
+        for ts, row in df.iterrows():
             out.append(Bar(
-                ts=datetime.utcfromtimestamp(rec.ts_event / 1e9),
-                open=rec.open * px, high=rec.high * px, low=rec.low * px,
-                close=rec.close * px, volume=float(rec.volume), symbol=symbol,
+                ts=ts.to_pydatetime().replace(tzinfo=None),
+                open=float(row["open"]), high=float(row["high"]),
+                low=float(row["low"]), close=float(row["close"]),
+                volume=float(row["volume"]), symbol=symbol,
             ))
         return out
 
