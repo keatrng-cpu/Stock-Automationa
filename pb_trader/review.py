@@ -115,14 +115,15 @@ def audit(brain: TradingBrain, skips: list, top: int = 6) -> str:
     return "\n".join(L)
 
 
-def run(symbols, weeks=4, source="neutral", timeframe="1m", equity=None) -> None:
+def run(symbols, weeks=4, source="neutral", timeframe="1m", equity=None,
+        start=None, end=None) -> None:
     from .timeframes import parse_tf
     equity = equity or settings.account_equity
     bars = max(1, (7 * 24 * 3600) // parse_tf(timeframe)) * weeks
     brain = TradingBrain(base_threshold=settings.confluence_threshold,
                          memory=TradeMemory(shrink_k=8.0))
-    r = run_backtest(symbols, source, bars, timeframe=timeframe, verbose=False,
-                     start_equity=equity, brain=brain, track_skips=True)
+    r = run_backtest(symbols, source, bars, start=start, end=end, timeframe=timeframe,
+                     verbose=False, start_equity=equity, brain=brain, track_skips=True)
     print(f"\n(context: {r.metrics.round_trips} trades taken, {len(r.skips)} setups skipped, "
           f"end ${r.end_equity:,.0f} on '{source}' {timeframe} {weeks}wk)")
     print(audit(brain, r.skips))
@@ -136,12 +137,16 @@ def main() -> None:
     from .timeframes import LADDER
     p = argparse.ArgumentParser(description="Audit the brain's learning for weak spots")
     p.add_argument("--symbols", nargs="+", default=["ES", "NQ"])
-    p.add_argument("--source", default="neutral", choices=["synthetic", "neutral", "adversarial"])
+    p.add_argument("--source", default="neutral",
+                   choices=["synthetic", "neutral", "adversarial", "csv", "databento"])
+    p.add_argument("--start", default=None, help="ISO date (real-data sources)")
+    p.add_argument("--end", default=None, help="ISO date (real-data sources)")
     p.add_argument("--weeks", type=int, default=4)
     p.add_argument("--timeframe", default="1m", choices=LADDER)
     p.add_argument("--equity", type=float, default=None)
     args = p.parse_args()
-    run(args.symbols, args.weeks, args.source, args.timeframe, args.equity)
+    run(args.symbols, args.weeks, args.source, args.timeframe, args.equity,
+        start=args.start, end=args.end)
 
 
 if __name__ == "__main__":

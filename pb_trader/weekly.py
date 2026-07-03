@@ -24,7 +24,8 @@ def week_bars(timeframe: str) -> int:
     return max(1, (7 * 24 * 3600) // parse_tf(timeframe))
 
 
-def run(symbols, weeks=12, source="neutral", timeframe=None, profile=None, mtf=False) -> None:
+def run(symbols, weeks=12, source="neutral", timeframe=None, profile=None, mtf=False,
+        start=None, end=None) -> None:
     base_thr = settings.confluence_threshold
     if profile:
         from .profiles import get_profile
@@ -38,7 +39,7 @@ def run(symbols, weeks=12, source="neutral", timeframe=None, profile=None, mtf=F
     wb = week_bars(timeframe)
     total = wb * weeks
     brain = TradingBrain(base_threshold=base_thr, memory=TradeMemory(shrink_k=8.0))
-    series = load_series(symbols, source, total, timeframe=timeframe)
+    series = load_series(symbols, source, total, start=start, end=end, timeframe=timeframe)
     n = min(len(v) for v in series.values())
     weeks = n // wb
     r = run_backtest(symbols, source, total, timeframe=timeframe, verbose=False,
@@ -90,6 +91,8 @@ def main() -> None:
     p.add_argument("--symbols", nargs="+", default=["ES", "NQ"])
     p.add_argument("--source", default="neutral",
                    choices=["synthetic", "neutral", "adversarial", "csv", "databento"])
+    p.add_argument("--start", default=None, help="ISO date (real-data sources)")
+    p.add_argument("--end", default=None, help="ISO date (real-data sources)")
     p.add_argument("--weeks", type=int, default=12)
     p.add_argument("--timeframe", default=None, choices=LADDER,
                    help="base TF; defaults to the profile's recommended chart")
@@ -98,7 +101,8 @@ def main() -> None:
     p.add_argument("--mtf", action="store_true",
                    help="multi-timeframe conjunction: gate setups by all higher TFs at once")
     args = p.parse_args()
-    run(args.symbols, args.weeks, args.source, args.timeframe, args.profile, args.mtf)
+    run(args.symbols, args.weeks, args.source, args.timeframe, args.profile, args.mtf,
+        start=args.start, end=args.end)
 
 
 if __name__ == "__main__":

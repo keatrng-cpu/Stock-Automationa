@@ -869,3 +869,21 @@ def test_hypo_r_counterfactual_outcome():
                _bar(1, 5030, 5040, 5025, 5035),
                _bar(2, 5050, 5060, 5045, 5055)]
     assert _hypo_r(s, series2, 0, 1) is None
+
+
+def test_databento_schema_selection_and_resample():
+    """Databento only has native 1s/1m/1h/1d — the source must pick a native schema and
+    resample to any ladder timeframe (so --timeframe 15m works on real data)."""
+    from pb_trader.data.databento_source import DatabentoSource, _resample_secs
+    # Sub-minute → 1s native; 1m+ → 1m native, with the target seconds to resample to.
+    assert DatabentoSource._native_schema("30s") == ("ohlcv-1s", 30)
+    assert DatabentoSource._native_schema("1m") == ("ohlcv-1m", 60)
+    assert DatabentoSource._native_schema("15m") == ("ohlcv-1m", 900)
+    # Second-level resample: 120 one-second bars → four 30s candles, OHLC preserved.
+    t0 = datetime(2026, 6, 26, 9, 30, 0)
+    secbars = [Bar(t0 + timedelta(seconds=i), 100 + i, 100 + i + 0.5, 100 + i - 0.5,
+                   100 + i, 1, "ES") for i in range(120)]
+    r30 = _resample_secs(secbars, 30)
+    assert len(r30) == 4
+    assert r30[0].open == secbars[0].open and r30[0].high == max(b.high for b in secbars[:30])
+    assert r30[0].close == secbars[29].close

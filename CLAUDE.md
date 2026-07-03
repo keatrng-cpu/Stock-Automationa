@@ -240,6 +240,26 @@ Run the morning protocol: context → HTF bias → SMT → key levels → A+ set
 - **Multi-timeframe**: add `--mtf` to backtest/weekly/montecarlo for full-ladder conjunction.
 - **Goal tracking**: `pb_trader/goals.py` tracks the $1k→$10k→$50k→$100k journey.
 
+## Running on real Databento data (ES/NQ)
+
+The engine reads live/historical CME data via `data/databento_source.py`. Databento only
+publishes native `ohlcv-1s/1m/1h/1d`, so the source fetches the finest native schema and
+**resamples** up to any ladder timeframe (1m→15m, 1s→30s) — so every `--timeframe` works.
+
+Setup (once, on a machine with the key):
+1. `pip install 'pb-trader[databento]'`  (installs the `databento>=0.34` extra)
+2. In `.env`: `DATABENTO_API_KEY=db-...`  (dataset defaults to `GLBX.MDP3`)
+3. Verify: `python -m pb_trader.connect databento`
+
+Then point any tool at real data with `--source databento --start <ISO> --end <ISO>`:
+- Backtest: `python -m pb_trader.backtest --source databento --start 2025-05-01 --end 2025-06-01 --timeframe 1m`
+- Weekly ledger: `python -m pb_trader.weekly --source databento --start 2025-05-01 --end 2025-06-01`
+- Learning audit: `python -m pb_trader.review --source databento --start 2025-05-01 --end 2025-06-01`
+- Paper loop: `python -m pb_trader.live --mode paper --source databento`
+
+Dates are ISO (`YYYY-MM-DD`); if omitted the source defaults to the last ~10 days. This is
+the single highest-leverage move — it takes the brain's learning off synthetic noise.
+
 ## Working on this repo
 
 - Stack: Python, stdlib-only core (connectors are optional extras).
