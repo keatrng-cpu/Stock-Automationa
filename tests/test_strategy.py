@@ -831,3 +831,41 @@ def test_governor_medium_tier_allowed_within_floor():
     # A 0.77 setup is a valid MEDIUM A+ (at/above the 0.75 floor) — permitted, not forced.
     assert g.classify(0.77) == "medium"
     assert g.can_enter(0.77, 20000)[0] is True
+
+
+def test_memory_collinearity_not_double_counted():
+    """A cluster of co-firing concepts (identical stats) must count ONCE, not N times, so it
+    can't outvote an independent feature."""
+    from pb_trader.memory import TradeMemory
+    from pb_trader.models import Trade
+    t0 = datetime(2026, 6, 26, 10, 0)
+    # Eight concepts that ALWAYS fire together on losing trades.
+    blob = {"concepts": ["a", "b", "c", "d", "e", "f", "g", "h"],
+            "regime": "trending", "volatility": "normal"}
+    solo = {"concepts": ["a", "b", "c", "d", "e", "f", "g", "h"],
+            "regime": "trending", "volatility": "normal"}
+    mem = TradeMemory(shrink_k=0.0)
+    for _ in range(10):
+        mem.record(Trade("ES", Side.LONG, 1, 5000, 4990, t0, t0, pnl=-50, r_multiple=-1.0,
+                         tag="80%", features=blob), persist=False)
+    # The 8 identical concept buckets collapse to one vote; edge stays ~-1R, not amplified.
+    e = mem.edge("ES", Side.LONG, t0, "80%", solo)
+    assert -1.05 <= e <= -0.95
+
+
+def test_hypo_r_counterfactual_outcome():
+    from pb_trader.backtest import _hypo_r
+    from pb_trader.models import Setup, Side
+    t0 = datetime(2026, 6, 26, 10, 0)
+    # Long entry 5000, stop 4990, target 5020 → risk 10, rr 2.0.
+    s = Setup("ES", Side.LONG, 5000, 4990, [5020], t0, 0.80)
+    # Series: signal at i=0; retest to 5000 at i=1; then rallies to target 5020 at i=2.
+    series = [_bar(0, 5005, 5006, 5004, 5005),
+              _bar(1, 5002, 5003, 4999, 5001),     # touches 5000 → fills
+              _bar(2, 5010, 5021, 5009, 5020)]     # hits target → +2R
+    assert _hypo_r(s, series, 0, 20) == 2.0
+    # If it never retests the entry, the veto was moot → None.
+    series2 = [_bar(0, 5005, 5006, 5004, 5005),
+               _bar(1, 5030, 5040, 5025, 5035),
+               _bar(2, 5050, 5060, 5045, 5055)]
+    assert _hypo_r(s, series2, 0, 1) is None

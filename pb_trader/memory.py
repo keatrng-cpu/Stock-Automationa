@@ -128,10 +128,21 @@ class TradeMemory:
         return worst, worst_e
 
     def _shrunk(self, keys: list[str]) -> float:
+        # Collinearity guard: many SMC/ICT concepts always fire together (e.g. mechanical +
+        # cisd + htf_fvg + mss on the same bar), so their buckets carry IDENTICAL stats. Left
+        # unchecked, a blob of N co-firing concepts would outvote an independent feature like
+        # sym:ES N-to-1 and fool the brain into "learning per-concept" it can't actually
+        # separate. We collapse buckets with identical (n, sum_r) so a collinear cluster
+        # counts as ONE vote, not N.
         vals = []
+        seen: set = set()
         for f in keys:
             st = self.buckets.get(f)
             if st and st.n > 0:
+                sig = (round(st.n, 6), round(st.sum_r, 6))
+                if sig in seen:
+                    continue                              # collinear duplicate — count once
+                seen.add(sig)
                 trust = st.n / (st.n + self.shrink_k)     # 0..1, grows with sample weight
                 vals.append(st.expectancy * trust)
         return sum(vals) / len(vals) if vals else 0.0

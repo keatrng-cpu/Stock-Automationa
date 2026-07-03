@@ -32,6 +32,40 @@ class BacktestResult:
     slippage: float = 0.0
     checkpoints: list = field(default_factory=list)   # periodic snapshots (e.g. weekly)
     halt_days: int = 0                                 # days the daily circuit breaker tripped
+    skips: list = field(default_factory=list)          # counterfactual skip records (veto calibration)
+
+
+def _hypo_r(setup, series: list, i: int, retest_window: int) -> float | None:
+    """Counterfactual: what R would this SKIPPED setup have made? Fills the same limit on a
+    later-bar retest (no look-ahead), then resolves stop vs target pessimistically (stop
+    first if both touch). Returns R, or None if it never would have filled. Used to calibrate
+    whether the brain's vetoes actually help — the core 'is our learning right?' check."""
+    entry, stop = setup.entry, setup.stop
+    target = setup.targets[0] if setup.targets else None
+    if target is None or stop is None or entry == stop:
+        return None
+    risk = abs(entry - stop)
+    rr = abs(target - entry) / risk if risk else 0.0
+    long = setup.side.value == "long"
+    filled = False
+    # Look forward over the retest window to fill, then to resolution.
+    for j in range(i + 1, min(len(series), i + 1 + retest_window * 4)):
+        b = series[j]
+        if not filled:
+            if b.low <= entry <= b.high:
+                filled = True
+            elif j - i > retest_window:
+                return None                    # limit expired unfilled — veto was moot
+            else:
+                continue
+        if filled:
+            hit_stop = b.low <= stop if long else b.high >= stop
+            hit_tgt = b.high >= target if long else b.low <= target
+            if hit_stop:
+                return -1.0                    # pessimistic: stop first if both
+            if hit_tgt:
+                return round(rr, 2)
+    return None                                 # unresolved within the window
 
 
 def load_series(symbols, source_name="synthetic", bars=5000, start=None, end=None,
@@ -63,7 +97,8 @@ def run_backtest(symbols: list[str], source_name: str = "synthetic",
                  checkpoint_bars: int | None = None,
                  profile: str | None = None,
                  seed: int | None = None,
-                 mtf: bool = False) -> BacktestResult:
+                 mtf: bool = False,
+                 track_skips: bool = False) -> BacktestResult:
     if use_micros is None:
         use_micros = settings.use_micros
     if profile:
@@ -108,6 +143,7 @@ def run_backtest(symbols: list[str], source_name: str = "synthetic",
     pending: dict = {s: [] for s in symbols}
     RETEST_WINDOW = 20
     checkpoints: list = []
+    skips: list = []          # counterfactual veto calibration (when track_skips)
 
     for i in range(n):
         if checkpoint_bars and i > 0 and i % checkpoint_bars == 0:
@@ -151,6 +187,11 @@ def run_backtest(symbols: list[str], source_name: str = "synthetic",
             # when halted for the day or the weekly cadence is already met. Quality unchanged.
             allowed, _gov_reason = governor.can_enter(setup.confluence, broker.equity)
             if not allowed:
+                if track_skips:
+                    tag = "breaker" if "breaker" in _gov_reason else \
+                          ("cadence" if "cadence" in _gov_reason else "daily-cap")
+                    skips.append({"reason": f"gov-{tag}", "conf": setup.confluence,
+                                  "hypo_r": _hypo_r(setup, series[s], i, RETEST_WINDOW)})
                 continue
 
             other = [o for o in symbols if o != s]
@@ -158,6 +199,9 @@ def run_backtest(symbols: list[str], source_name: str = "synthetic",
                 lo = max(0, i - 60)
                 smt = smt_divergence(series[s][lo:i + 1], series[other[0]][lo:i + 1])
                 if smt.diverging and smt.superior and smt.superior != s:
+                    if track_skips:
+                        skips.append({"reason": "smt-veto", "conf": setup.confluence,
+                                      "hypo_r": _hypo_r(setup, series[s], i, RETEST_WINDOW)})
                     continue
 
             ok, _ = validate_setup(setup, settings.min_rr)
@@ -171,6 +215,10 @@ def run_backtest(symbols: list[str], source_name: str = "synthetic",
             if brain:
                 dec = brain.decide(setup, broker.equity)
                 if not dec.take:
+                    if track_skips:
+                        reason = "brain-veto" if dec.edge <= brain.edge_veto else "below-bar"
+                        skips.append({"reason": reason, "conf": setup.confluence,
+                                      "hypo_r": _hypo_r(setup, series[s], i, RETEST_WINDOW)})
                     continue
                 qty = max(0, int(round(sized.qty * dec.size_mult)))
                 if qty < 1:
@@ -186,7 +234,8 @@ def run_backtest(symbols: list[str], source_name: str = "synthetic",
     metrics = compute_metrics(broker.trades, broker.start_equity)
     result = BacktestResult(metrics, broker.trades, broker.start_equity,
                             broker.equity, broker.total_commission, broker.total_slippage,
-                            checkpoints=checkpoints, halt_days=governor.halt_day_count)
+                            checkpoints=checkpoints, halt_days=governor.halt_day_count,
+                            skips=skips)
 
     if equity_csv:
         _write_equity_csv(metrics.equity_curve, equity_csv)

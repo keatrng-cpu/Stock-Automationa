@@ -152,6 +152,22 @@ only the one that confirms. `PBModel.project_scenarios()` pulls live state; the 
 report renders the map ("if price sweeps PDH and fails → short to PDL"). Pure/deterministic
 — every level named comes from real levels, never fabricated.
 
+## Learning self-audit — review the learning, find weak spots (`review.py`)
+
+`python -m pb_trader.review` runs the engine, then audits its OWN learning and names where
+it's weak — the honest introspection a great trader does nightly:
+1. **Collinearity**: SMC/ICT concepts that always co-fire carry identical stats, so the brain
+   can't separate them. `memory._shrunk` now **collapses identical-stat buckets to one vote**
+   (a real fix — a blob of 8 co-firing concepts no longer outvotes an independent `sym:ES`
+   8-to-1); the audit still flags the residual (can't credit a concept until it's seen apart).
+2. **Sample health**: how many buckets are actually TRUSTED (n ≥ shrink_k) vs undersampled noise.
+3. **Blind spots**: regimes / volatility / sessions / TFs with zero experience.
+4. **Trusted edges**: the best/worst edges the brain can stand behind.
+5. **Veto calibration** (counterfactual, no look-ahead): of the setups the brain SKIPPED, how
+   many WOULD have won? `run_backtest(track_skips=True)` + `_hypo_r` grade each veto —
+   SMT/cadence vetoes that skip losers are GOOD; a veto that skips net winners is over-filtering.
+   This is how the system measures whether its own filters actually add value.
+
 ## Cadence + daily circuit breaker (`governor.py`)
 
 `SessionGovernor` keeps the engine **active but disciplined**, and it **never forces a trade**:
@@ -219,6 +235,8 @@ Run the morning protocol: context → HTF bias → SMT → key levels → A+ set
 - **Monte-Carlo**: `python -m pb_trader.montecarlo --seeds N` — distribution across many
   randomized markets (median/% profitable/worst DD), not one lucky seed.
 - **SMT monitor**: `python -m pb_trader.smt_monitor` — automatic ES⇄NQ divergence timeline.
+- **Learning audit**: `python -m pb_trader.review` — reviews what the brain learned and names
+  weak spots (collinearity, undersampling, blind spots, veto calibration).
 - **Multi-timeframe**: add `--mtf` to backtest/weekly/montecarlo for full-ladder conjunction.
 - **Goal tracking**: `pb_trader/goals.py` tracks the $1k→$10k→$50k→$100k journey.
 
