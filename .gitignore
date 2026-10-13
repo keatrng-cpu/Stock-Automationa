@@ -17,3 +17,7 @@ data_cache/
 journal/*.jsonl
 *.csv
 !tests/**/*.csv
+ai/.sessions.log
+graphify-out/.post-commit.log
+ai/.context.md
+ai/.context.md.tmp
