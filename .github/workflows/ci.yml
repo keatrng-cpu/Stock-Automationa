@@ -2,8 +2,9 @@
 name: ci
 on:
   pull_request:
+    branches: [claude/trading-journey-clause-sj5c41]
   push:
-    branches: [main]
+    branches: [claude/trading-journey-clause-sj5c41]
 permissions:
   contents: read
 concurrency:
